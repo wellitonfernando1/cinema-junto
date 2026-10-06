@@ -4,11 +4,11 @@ Projeto Android para Welliton e um amigo assistirem à tela e ao áudio do celul
 
 ## Estado desta entrega
 
-O APK de teste foi gerado pelo GitHub Actions e o servidor está publicado no plano Free do Render em https://cinema-junto-welliton.onrender.com/. A compilação Android e os testes automatizados do servidor passaram. A verificação HTTPS de `/health` respondeu `200 ok`. O funcionamento de captura e reprodução ainda precisa ser testado em dois celulares Android reais.
+O APK de teste é gerado pelo GitHub Actions e o servidor está publicado no plano Free do Render em https://cinema-junto-welliton.onrender.com/. Esta versão amplia a visualização, mantém a sessão ao girar o aparelho, oferece tela cheia e inclui chat na imagem. O funcionamento de captura e reprodução ainda precisa ser testado em dois celulares Android reais.
 
 ## Instalar ou gerar novamente o APK sem Android Studio
 
-O APK pronto desta entrega é `Cinema-Junto-teste.apk`. Ele foi gerado pela [execução 3 do GitHub Actions](https://github.com/wellitonfernando1/cinema-junto/actions/runs/37396328293). O artefato no GitHub expira após 14 dias; guarde uma cópia do APK.
+O APK atualizado desta entrega é `Cinema-Junto-teste.apk`. Cada artefato do GitHub Actions expira após 14 dias; guarde uma cópia do APK. Se a versão anterior já estiver instalada, desinstale-a antes de instalar esta: as versões de teste compiladas em execuções diferentes usam assinaturas de depuração diferentes. A desinstalação apaga os dados locais do aplicativo.
 
 1. Abra o [repositório Cinema Junto](https://github.com/wellitonfernando1/cinema-junto), que já contém o projeto e a pasta `.github`.
 2. No GitHub, abra Actions > Gerar APK > Run workflow. A execução também acontece ao enviar código à branch `main`.
@@ -41,7 +41,9 @@ O servidor pode levar algum tempo para responder após inatividade, conforme as 
 1. Abra o Cinema Junto.
 2. Cole o convite completo no campo indicado. O convite é para colar no aplicativo, não para reproduzir em um navegador.
 3. Toque em Assistir ao meu amigo. A imagem aparece na área preta e o som é reproduzido pelo celular.
-4. Use fones para evitar eco se vocês também estiverem conversando por outro aplicativo.
+4. Toque em **Tela cheia** para ocupar a tela em paisagem; toque em **Sair da tela cheia** para voltar. Girar o aparelho mantém a conexão ativa.
+5. Toque em **Chat** para escrever com o teclado ou usar os emojis rápidos. As mensagens dos dois participantes passam no topo do vídeo por alguns segundos e ficam no histórico do chat durante a sessão.
+6. Use fones para evitar eco se vocês também estiverem conversando por outro aplicativo.
 
 ### Encerrar
 
@@ -56,7 +58,7 @@ Quem transmite pode tocar em Encerrar na notificação ou dentro do aplicativo. 
 - Tela compartilhada exige autorização a cada nova sessão. Não há captura automática, gravação permanente nem câmera/microfone de conversa.
 - Não há reconexão automática. Ao perder a rede, encerre e tente novamente.
 - Abrir o aplicativo pela notificação pode recriar a tela de controles, mas a transmissão continua no serviço. Não inicie outra transmissão antes de encerrar a primeira.
-- O destinatário precisa manter o aplicativo aberto. Girar o celular pode encerrar a recepção, exigindo nova entrada com o mesmo convite.
+- O destinatário precisa manter o aplicativo aberto. A rotação da tela é tratada sem recriar a conexão, mas o Android ainda pode encerrar o aplicativo por falta de memória ou restrições de bateria.
 - Não testado em dispositivos físicos nesta entrega. Uma compilação aprovada também não garante captura compatível com o YouCine.
 
 ## Privacidade
@@ -70,4 +72,3 @@ Servidor: execute `npm ci` e `npm test` dentro de `server`. Os testes verificam 
 Android: o fluxo GitHub Actions instala Java 17, Gradle 8.13 e Android SDK 35 e executa `gradle :app:assembleDebug`. Depois disso, teste nos dois aparelhos: autorizações, entrada pelo convite, imagem, áudio interno, atraso, giro de tela, encerramento pela notificação e reconexão manual após perda de rede.
 
 Documentação de referência: https://developer.android.com/media/platform/av-capture , https://developer.android.com/media/grow/media-projection , https://render.com/docs/websocket , https://github.com/gradle/actions .
-

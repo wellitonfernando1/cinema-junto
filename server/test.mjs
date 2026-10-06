@@ -39,3 +39,31 @@ test('rejeita convidado sem anfitrião, convite inválido e terceiro participant
   await join(url, 'viewer', 'd'.repeat(64));
   await rejected('viewer', 'd'.repeat(64)); await rejected('host', 'd'.repeat(64)); host.close();
 });
+test('mensagens e emojis aparecem para os dois participantes sem vazar para outra sala', async t => {
+  const url = await fixture(t);
+  const host = await join(url, 'host', 'e'.repeat(64));
+  const hostNotice = once(host, 'message');
+  const viewer = await join(url, 'viewer', 'e'.repeat(64));
+  await hostNotice;
+  const otherHost = await join(url, 'host', 'f'.repeat(64));
+  const otherViewer = await join(url, 'viewer', 'f'.repeat(64));
+  let leaked = false; otherViewer.on('message', () => { leaked = true; });
+  const firstHost = once(host, 'message');
+  const firstViewer = once(viewer, 'message');
+  viewer.send(JSON.stringify({ type: 'chat', text: 'Oi 😀' }));
+  for (const response of [firstHost, firstViewer]) {
+    const [data, binary] = await response;
+    assert.equal(binary, false);
+    assert.deepEqual(JSON.parse(data.toString()), { type: 'chat', from: 'viewer', text: 'Oi 😀' });
+  }
+  const secondHost = once(host, 'message');
+  const secondViewer = once(viewer, 'message');
+  host.send(JSON.stringify({ type: 'chat', text: 'Olá ❤️' }));
+  for (const response of [secondHost, secondViewer]) {
+    const [data, binary] = await response;
+    assert.equal(binary, false);
+    assert.deepEqual(JSON.parse(data.toString()), { type: 'chat', from: 'host', text: 'Olá ❤️' });
+  }
+  assert.equal(leaked, false);
+  host.close(); otherHost.close();
+});

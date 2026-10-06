@@ -6,8 +6,8 @@ android {
         applicationId 'br.com.cinemajunto'
         minSdk 29
         targetSdk 35
-        versionCode 1
-        versionName '0.1-teste'
+        versionCode 2
+        versionName '0.2-teste'
     }
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17

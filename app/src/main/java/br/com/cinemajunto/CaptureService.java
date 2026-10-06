@@ -31,9 +31,21 @@ public class CaptureService extends Service {
     long lastFrame;
     int width, height, density;
     void status(String text) { sendBroadcast(new Intent(getPackageName()+".STATUS").setPackage(getPackageName()).putExtra("status", text)); }
+    void chat(String from, String text) {
+        sendBroadcast(new Intent(getPackageName()+".STATUS").setPackage(getPackageName())
+            .putExtra("from", from).putExtra("chat", text));
+    }
     @Override public IBinder onBind(Intent i) { return null; }
     @Override public int onStartCommand(Intent intent, int flags, int id) {
         if (intent == null || "STOP".equals(intent.getAction())) { stopSelf(); return START_NOT_STICKY; }
+        if ("CHAT".equals(intent.getAction())) {
+            String text = intent.getStringExtra("message");
+            if (connected && socket != null && text != null && !text.trim().isEmpty()) {
+                try { socket.send(new JSONObject().put("type", "chat").put("text", text.trim()).toString()); }
+                catch (Exception ignored) { status("Não foi possível enviar a mensagem."); }
+            } else status("Chat desconectado. Tente novamente.");
+            return START_NOT_STICKY;
+        }
         if (running) return START_NOT_STICKY;
         try {
             NotificationManager nm = getSystemService(NotificationManager.class);
@@ -63,7 +75,13 @@ public class CaptureService extends Service {
                 @Override public void onOpen(WebSocket ws, Response response) {
                     try { ws.send(new JSONObject().put("room", room).put("role", "host").toString()); } catch (Exception ignored) {}
                 }
-                @Override public void onMessage(WebSocket ws, String text) { try { connected = true; active = true; status(new JSONObject(text).optString("status")); } catch (Exception ignored) {} }
+                @Override public void onMessage(WebSocket ws, String text) {
+                    try {
+                        JSONObject msg = new JSONObject(text);
+                        if ("chat".equals(msg.optString("type"))) chat(msg.optString("from"), msg.optString("text"));
+                        else if (msg.has("status")) { connected = true; active = true; status(msg.optString("status")); }
+                    } catch (Exception ignored) {}
+                }
                 @Override public void onFailure(WebSocket ws, Throwable t, Response response) { status("Falha na conexão. Abra o Cinema Junto e tente novamente."); stopSelf(); }
                 @Override public void onClosing(WebSocket ws, int code, String reason) { ws.close(code, reason); }
                 @Override public void onClosed(WebSocket ws, int code, String reason) { status(reason); stopSelf(); }

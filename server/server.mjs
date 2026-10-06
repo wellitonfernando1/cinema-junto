@@ -15,7 +15,7 @@ export function createRelay({ ttlMs = 2 * 60 * 60 * 1000 } = {}) {
     wss.handleUpgrade(req, socket, head, ws => wss.emit('connection', ws));
   });
   wss.on('connection', ws => {
-    let joined = false, role, key;
+    let joined = false, role, key, lastChatAt = 0;
     ws.alive = true;
     ws.on('pong', () => { ws.alive = true; });
     const deadline = setTimeout(() => ws.close(1008, 'Identifique a sala'), 10000);
@@ -47,6 +47,22 @@ export function createRelay({ ttlMs = 2 * 60 * 60 * 1000 } = {}) {
       }
       const room = rooms.get(key);
       if (role === 'host' && binary && data.length >= 2 && [1,2].includes(data[0])) send(room?.viewer, data, true);
+      if (!binary && data.length <= 2048 && room?.[role] === ws) {
+        let msg;
+        try { msg = JSON.parse(data.toString()); } catch { return; }
+        if (msg.type !== 'chat' || typeof msg.text !== 'string') return;
+        const text = msg.text.trim();
+        if (!text || Array.from(text).length > 280 || Date.now() - lastChatAt < 250) return;
+        lastChatAt = Date.now();
+        const peer = role === 'host' ? room.viewer : room.host;
+        if (!peer || peer.readyState !== WebSocket.OPEN) {
+          send(ws, JSON.stringify({ status: 'Seu amigo ainda não está conectado.' }));
+          return;
+        }
+        const packet = JSON.stringify({ type: 'chat', from: role, text });
+        send(peer, packet);
+        send(ws, packet);
+      }
     });
     ws.on('error', () => {});
     ws.on('close', () => {
