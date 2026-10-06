@@ -20,10 +20,11 @@ jobs:
           gradle-version: '8.13'
       - run: sdkmanager 'platforms;android-35' 'build-tools;35.0.0'
       - run: gradle :app:assembleDebug --no-daemon
+      - run: cp app/build/outputs/apk/debug/app-debug.apk Cinema-Junto-Chat-e-Tela-Cheia.apk
       - uses: actions/upload-artifact@v4
         with:
-          name: Cinema-Junto-APK
-          path: app/build/outputs/apk/debug/app-debug.apk
+          name: Cinema-Junto-Chat-e-Tela-Cheia-APK
+          path: Cinema-Junto-Chat-e-Tela-Cheia.apk
           retention-days: 14
   servidor:
     runs-on: ubuntu-latest

@@ -62,7 +62,7 @@ public class MainActivity extends Activity {
         box.setOrientation(LinearLayout.VERTICAL); box.setPadding(dp(12),dp(8),dp(12),dp(8));
         root.addView(box, new FrameLayout.LayoutParams(-1, -1));
         controls = new LinearLayout(this); controls.setOrientation(LinearLayout.VERTICAL); box.addView(controls);
-        TextView title = new TextView(this); title.setText("Cinema Junto"); title.setTextSize(24); controls.addView(title);
+        TextView title = new TextView(this); title.setText("Cinema Junto Chat e Tela Cheia"); title.setTextSize(24); controls.addView(title);
         TextView subtitle = new TextView(this); subtitle.setText("Versão de teste • apenas você e seu amigo"); controls.addView(subtitle);
         endpoint = new EditText(this); endpoint.setSingleLine(true); endpoint.setHint("Endereço do servidor: https://…");
         endpoint.setText(getPreferences(0).getString("endpoint", "https://cinema-junto-welliton.onrender.com/")); controls.addView(endpoint);

@@ -1,6 +1,6 @@
 # Cinema Junto
 
-Projeto Android para Welliton e um amigo assistirem à tela e ao áudio do celular pela internet. Android 10 ou superior. Nome no celular: Cinema Junto.
+Projeto Android para Welliton e um amigo assistirem à tela e ao áudio do celular pela internet. Android 10 ou superior. Nome no celular: Cinema Junto Chat e Tela Cheia.
 
 ## Estado desta entrega
 
@@ -8,11 +8,11 @@ O APK de teste é gerado pelo GitHub Actions e o servidor está publicado no pla
 
 ## Instalar ou gerar novamente o APK sem Android Studio
 
-O APK atualizado desta entrega é `Cinema-Junto-teste.apk`. Cada artefato do GitHub Actions expira após 14 dias; guarde uma cópia do APK. Se a versão anterior já estiver instalada, desinstale-a antes de instalar esta: as versões de teste compiladas em execuções diferentes usam assinaturas de depuração diferentes. A desinstalação apaga os dados locais do aplicativo.
+O APK atualizado desta entrega é `Cinema-Junto-Chat-e-Tela-Cheia.apk`. Cada artefato do GitHub Actions expira após 14 dias; guarde uma cópia do APK. Se a versão anterior já estiver instalada, desinstale-a antes de instalar esta: as versões de teste compiladas em execuções diferentes usam assinaturas de depuração diferentes. A desinstalação apaga os dados locais do aplicativo.
 
 1. Abra o [repositório Cinema Junto](https://github.com/wellitonfernando1/cinema-junto), que já contém o projeto e a pasta `.github`.
 2. No GitHub, abra Actions > Gerar APK > Run workflow. A execução também acontece ao enviar código à branch `main`.
-3. Aguarde a execução terminar. Ao final, baixe o arquivo Cinema-Junto-APK em Artifacts e extraia o `app-debug.apk`.
+3. Aguarde a execução terminar. Ao final, baixe o arquivo Cinema-Junto-Chat-e-Tela-Cheia-APK em Artifacts e extraia o `Cinema-Junto-Chat-e-Tela-Cheia.apk`.
 4. Instale o APK nos dois celulares. O Android poderá pedir permissão para instalar aplicativos da origem escolhida. Esta é uma versão de teste com assinatura de depuração, para uso particular.
 5. O computador não compila nada localmente. Toda a compilação acontece no GitHub Actions. Confira os limites e condições da sua conta antes de usar recursos de execução.
 
