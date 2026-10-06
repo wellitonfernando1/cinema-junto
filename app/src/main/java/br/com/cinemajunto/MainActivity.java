@@ -40,7 +40,7 @@ public class MainActivity extends Activity {
         TextView title = new TextView(this); title.setText("Cinema Junto"); title.setTextSize(28); box.addView(title);
         TextView subtitle = new TextView(this); subtitle.setText("Versão de teste • apenas você e seu amigo\nUse Wi-Fi e fones de ouvido."); box.addView(subtitle);
         endpoint = new EditText(this); endpoint.setSingleLine(true); endpoint.setHint("Endereço do servidor: https://…");
-        endpoint.setText(getPreferences(0).getString("endpoint", "")); box.addView(endpoint);
+        endpoint.setText(getPreferences(0).getString("endpoint", "https://cinema-junto-welliton.onrender.com/")); box.addView(endpoint);
         invitation = new EditText(this); invitation.setSingleLine(true); invitation.setHint("Cole aqui o convite para assistir");
         if (CaptureService.active) invitation.setText(getPreferences(0).getString("hostInvite", "")); box.addView(invitation);
         button(box, "Transmitir minha tela e o som", () -> startHost());
@@ -160,3 +160,4 @@ public class MainActivity extends Activity {
     }
     @Override protected void onDestroy() { stopViewer(); unregisterReceiver(messages); client.dispatcher().executorService().shutdown(); super.onDestroy(); }
 }
+
