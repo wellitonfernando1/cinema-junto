@@ -168,7 +168,7 @@ public class MainActivity extends Activity {
         if (chatOpen && visible) keyboardSeen = true;
         chatScroll.setVisibility(visible ? View.GONE : View.VISIBLE);
         // Android's landscape keyboard can otherwise turn into a full-screen text editor.
-        emojiRow.setVisibility(visible && getResources().getConfiguration().orientation == Configuration.ORIENTATION_LANDSCAPE ? View.GONE : View.VISIBLE);
+        emojiRow.setVisibility(View.VISIBLE);
         if (chatOpen && keyboardSeen && !visible) root.post(() -> { if (chatOpen && !imeVisible) closeChat(); });
     }
     void updateLayout() {
