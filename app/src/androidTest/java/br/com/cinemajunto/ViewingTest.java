@@ -108,10 +108,24 @@ public class ViewingTest {
         device.pressHome();
         until("Host button did not attach", () -> overlay.bubble != null && overlay.bubble.isAttachedToWindow());
         until("Host button is not visible over the launcher", () -> device.hasObject(By.desc("Abrir chat flutuante")));
+        Bitmap before = screenshot("host-before-message");
         main(() -> overlay.receive("viewer", "Estou assistindo ❤️"));
         until("Message is not above the other app", () -> overlay.banner != null && overlay.banner.isAttachedToWindow());
-        until("Host message is attached but hidden", () -> device.hasObject(By.desc("Mensagem no topo: Amigo: Estou assistindo ❤️")));
-        screenshot("host-message-over-launcher").recycle();
+        // Non-touchable overlay windows are omitted from the accessibility tree; verify their pixels.
+        until("Host message has no visible bounds", () -> overlay.banner.getHeight() > 0);
+        int[] bannerPosition = new int[2]; main(() -> overlay.banner.getLocationOnScreen(bannerPosition));
+        long deadline = SystemClock.elapsedRealtime() + 4000; boolean changed = false;
+        while (!changed && SystemClock.elapsedRealtime() < deadline) {
+            Thread.sleep(150); Bitmap after = screenshot("host-message-over-launcher"); int different = 0, total = 0;
+            for (int y = bannerPosition[1]; y < Math.min(after.getHeight(), bannerPosition[1]+overlay.banner.getHeight()); y += 4) {
+                for (int x = 0; x < after.getWidth(); x += 4) {
+                    int a = after.getPixel(x,y), b = before.getPixel(x,y); total++;
+                    if (Math.abs(Color.red(a)-Color.red(b))+Math.abs(Color.green(a)-Color.green(b))+Math.abs(Color.blue(a)-Color.blue(b)) > 35) different++;
+                }
+            }
+            changed = different > total * 0.3f; after.recycle();
+        }
+        before.recycle(); assertTrue("Host banner was attached but hidden in the screenshot", changed);
         main(() -> overlay.open()); until("Overlay keyboard did not open", () -> overlay.input != null && overlay.input.hasWindowFocus());
         until("Host keyboard is not actually visible", () -> device.hasObject(By.pkg("com.android.inputmethod.latin")));
         assertNotNull("Keyboard closed the overlay unexpectedly", overlay.composer);
