@@ -8,10 +8,13 @@ import android.content.pm.PackageManager;
 import android.content.res.Configuration;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
+import android.graphics.Insets;
+import android.graphics.Rect;
 import android.media.*;
 import android.media.projection.MediaProjectionManager;
 import android.net.Uri;
 import android.os.*;
+import android.provider.Settings;
 import android.text.InputFilter;
 import android.view.*;
 import android.view.inputmethod.EditorInfo;
@@ -26,19 +29,17 @@ import okio.ByteString;
 import org.json.JSONObject;
 
 public class MainActivity extends Activity {
-    EditText endpoint, invitation;
+    EditText endpoint, invitation, chatInput;
     TextView status, chatHistory, messageBanner;
-    ImageView screen;
-    Bitmap currentFrame;
-    LinearLayout controls, viewerBar, chatPanel, mainLayout, fullscreenBar;
-    FrameLayout root;
-    ScrollView chatScroll;
-    Button chatButton, fullscreenChatButton;
-    EditText chatInput;
+    FilmView screen;
+    ScrollView setupScroll, chatScroll;
+    LinearLayout mainLayout, controls, viewerBar, chatPanel, emojiRow;
+    FrameLayout root, videoPane;
+    Button chatButton, fullscreenButton, zoomButton;
     final ArrayDeque<String> chatLines = new ArrayDeque<>();
     final Handler ui = new Handler(Looper.getMainLooper());
-    boolean fullscreen, unreadChat;
-    int bannerSequence;
+    boolean fullscreen, unreadChat, imeVisible, keyboardSeen, chatOpen, destroyed;
+    int bannerSequence, playbackGeneration;
     String pendingEndpoint, pendingRoom;
     final OkHttpClient client = new OkHttpClient.Builder().pingInterval(20, TimeUnit.SECONDS).build();
     WebSocket socket;
@@ -46,6 +47,9 @@ public class MainActivity extends Activity {
     final ArrayBlockingQueue<byte[]> sound = new ArrayBlockingQueue<>(12);
     final AtomicReference<byte[]> latest = new AtomicReference<>();
     Thread audioThread, imageThread;
+    final Runnable hideControls = () -> {
+        if (watching && fullscreen && !chatOpen) viewerBar.setVisibility(View.GONE);
+    };
     final BroadcastReceiver messages = new BroadcastReceiver() {
         public void onReceive(Context c, Intent i) {
             if (i.hasExtra("chat")) receiveChat(i.getStringExtra("from"), i.getStringExtra("chat"));
@@ -57,164 +61,206 @@ public class MainActivity extends Activity {
         super.onCreate(saved);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
-        root = new FrameLayout(this);
-        LinearLayout box = new LinearLayout(this); mainLayout = box;
-        box.setOrientation(LinearLayout.VERTICAL); box.setPadding(dp(12),dp(8),dp(12),dp(8));
-        root.addView(box, new FrameLayout.LayoutParams(-1, -1));
-        controls = new LinearLayout(this); controls.setOrientation(LinearLayout.VERTICAL); box.addView(controls);
-        TextView title = new TextView(this); title.setText("Cinema Junto Chat e Tela Cheia"); title.setTextSize(24); controls.addView(title);
-        TextView subtitle = new TextView(this); subtitle.setText("Versão de teste • apenas você e seu amigo"); controls.addView(subtitle);
-        endpoint = new EditText(this); endpoint.setSingleLine(true); endpoint.setHint("Endereço do servidor: https://…");
+        root = new FrameLayout(this); root.setBackgroundColor(0xff000000);
+        mainLayout = new LinearLayout(this); mainLayout.setOrientation(LinearLayout.VERTICAL);
+        root.addView(mainLayout, new FrameLayout.LayoutParams(-1, -1));
+        setupScroll = new ScrollView(this);
+        controls = new LinearLayout(this); controls.setOrientation(LinearLayout.VERTICAL);
+        controls.setPadding(dp(16), dp(12), dp(16), dp(12)); controls.setBackgroundColor(0xfffafafa);
+        setupScroll.addView(controls); mainLayout.addView(setupScroll, new LinearLayout.LayoutParams(-1, 0, 1));
+        TextView title = new TextView(this); title.setText("Cinema Junto Chat Final"); title.setTextSize(24); controls.addView(title);
+        TextView subtitle = new TextView(this); subtitle.setText("Você e seu amigo, com filme e mensagens juntos."); controls.addView(subtitle);
+        endpoint = new EditText(this); endpoint.setSingleLine(true); endpoint.setHint("Endereço do servidor");
         endpoint.setText(getPreferences(0).getString("endpoint", "https://cinema-junto-welliton.onrender.com/")); controls.addView(endpoint);
         invitation = new EditText(this); invitation.setSingleLine(true); invitation.setHint("Cole aqui o convite para assistir");
         if (CaptureService.active) invitation.setText(getPreferences(0).getString("hostInvite", "")); controls.addView(invitation);
         button(controls, "Transmitir minha tela e o som", () -> startHost());
         button(controls, "Compartilhar convite", () -> share());
         button(controls, "Assistir ao meu amigo", () -> startViewer());
-        button(controls, "Chat", () -> openChat());
+        button(controls, "Chat de quem transmite", () -> openHostChat());
         button(controls, "Encerrar", () -> endSession());
-        viewerBar = new LinearLayout(this); viewerBar.setOrientation(LinearLayout.HORIZONTAL); box.addView(viewerBar);
-        barButton(viewerBar, "Tela cheia", () -> enterFullscreen());
+        status = new TextView(this); status.setText("Inicie uma transmissão ou cole o convite do seu amigo."); controls.addView(status);
+        TextView tip = new TextView(this);
+        tip.setText("Ao transmitir, permita aparecer sobre outros apps. O botão Chat fica sobre o filme para ler e responder mensagens."); controls.addView(tip);
+        videoPane = new FrameLayout(this); mainLayout.addView(videoPane, new LinearLayout.LayoutParams(-1, 0, 1));
+        screen = new FilmView(this); screen.setContentDescription("Filme compartilhado");
+        videoPane.addView(screen, new FrameLayout.LayoutParams(-1, -1));
+        screen.setOnClickListener(v -> revealControls());
+        viewerBar = new LinearLayout(this); viewerBar.setGravity(Gravity.CENTER); viewerBar.setBackgroundColor(0xaa171717);
+        fullscreenButton = barButton(viewerBar, "Tela cheia", () -> { if (fullscreen) exitFullscreen(); else enterFullscreen(); });
         chatButton = barButton(viewerBar, "Chat", () -> openChat());
+        zoomButton = barButton(viewerBar, "Ampliar", () -> {
+            screen.setZoom(!screen.zoom); zoomButton.setText(screen.zoom ? "Ajustar" : "Ampliar"); revealControls();
+        });
         barButton(viewerBar, "Encerrar", () -> endSession());
-        status = new TextView(this); status.setText("Servidor preenchido. Inicie ou entre em uma sala."); box.addView(status);
-        screen = new ImageView(this); screen.setScaleType(ImageView.ScaleType.FIT_CENTER); screen.setBackgroundColor(0xff000000);
-        box.addView(screen, new LinearLayout.LayoutParams(-1, 0, 1));
-        LinearLayout floating = new LinearLayout(this); fullscreenBar = floating; floating.setOrientation(LinearLayout.HORIZONTAL);
-        floating.setBackgroundColor(0x99000000);
-        Button exit = new Button(this); exit.setText("Sair da tela cheia"); exit.setOnClickListener(v -> exitFullscreen()); floating.addView(exit);
-        fullscreenChatButton = new Button(this); fullscreenChatButton.setText("Chat"); fullscreenChatButton.setOnClickListener(v -> openChat()); floating.addView(fullscreenChatButton);
-        FrameLayout.LayoutParams floatingPosition = new FrameLayout.LayoutParams(-2, -2, Gravity.TOP | Gravity.END);
-        root.addView(floating, floatingPosition);
-        messageBanner = new TextView(this); messageBanner.setTextColor(0xffffffff); messageBanner.setTextSize(18);
-        messageBanner.setPadding(dp(14), dp(10), dp(14), dp(10)); messageBanner.setBackgroundColor(0xdd202020);
+        videoPane.addView(viewerBar, new FrameLayout.LayoutParams(-1, dp(44), Gravity.BOTTOM));
+        messageBanner = new TextView(this); messageBanner.setTextColor(0xffffffff); messageBanner.setTextSize(16);
+        messageBanner.setMaxLines(2); messageBanner.setPadding(dp(12), dp(7), dp(12), dp(7)); messageBanner.setBackgroundColor(0xb3202020);
         FrameLayout.LayoutParams bannerPosition = new FrameLayout.LayoutParams(-1, -2, Gravity.TOP);
-        bannerPosition.topMargin = dp(56); root.addView(messageBanner, bannerPosition); messageBanner.setVisibility(View.GONE);
-        buildChatPanel();
-        setContentView(root); updateLayout();
+        bannerPosition.setMargins(dp(10), dp(8), dp(10), 0); videoPane.addView(messageBanner, bannerPosition);
+        messageBanner.setVisibility(View.GONE);
+        buildChatPanel(); setContentView(root); installInsets(); updateLayout();
         IntentFilter filter = new IntentFilter(getPackageName() + ".STATUS");
         if (Build.VERSION.SDK_INT >= 33) registerReceiver(messages, filter, Context.RECEIVER_NOT_EXPORTED); else registerReceiver(messages, filter);
         if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED)
             requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 3);
     }
-    void button(LinearLayout box, String label, Runnable action) { Button b = new Button(this); b.setText(label); b.setOnClickListener(v -> action.run()); box.addView(b); }
+    void button(LinearLayout box, String label, Runnable action) {
+        Button b = new Button(this); b.setText(label); b.setOnClickListener(v -> action.run()); box.addView(b);
+    }
     Button barButton(LinearLayout box, String label, Runnable action) {
-        Button b = new Button(this); b.setText(label); b.setOnClickListener(v -> action.run());
-        box.addView(b, new LinearLayout.LayoutParams(0, -2, 1)); return b;
+        Button b = new Button(this); b.setText(label); b.setTextSize(12); b.setMinWidth(0); b.setMinimumWidth(0);
+        b.setPadding(dp(3), 0, dp(3), 0); b.setOnClickListener(v -> action.run());
+        box.addView(b, new LinearLayout.LayoutParams(0, dp(44), 1)); return b;
     }
     int dp(int size) { return Math.round(size * getResources().getDisplayMetrics().density); }
     void buildChatPanel() {
         chatPanel = new LinearLayout(this); chatPanel.setOrientation(LinearLayout.VERTICAL);
-        chatPanel.setPadding(dp(10), dp(8), dp(10), dp(10)); chatPanel.setBackgroundColor(0xee171717);
-        TextView heading = new TextView(this); heading.setText("Mensagens"); heading.setTextColor(0xffffffff); heading.setTextSize(18);
-        chatPanel.addView(heading);
-        ScrollView historyScroll = new ScrollView(this); chatScroll = historyScroll;
-        chatHistory = new TextView(this); chatHistory.setTextColor(0xffffffff); chatHistory.setTextSize(16);
-        chatHistory.setText("Nenhuma mensagem ainda."); historyScroll.addView(chatHistory);
-        chatPanel.addView(historyScroll, new LinearLayout.LayoutParams(-1, dp(110)));
-        LinearLayout inputRow = new LinearLayout(this); inputRow.setOrientation(LinearLayout.HORIZONTAL);
-        chatInput = new EditText(this); chatInput.setSingleLine(true); chatInput.setHint("Escreva uma mensagem");
-        chatInput.setTextColor(0xffffffff); chatInput.setHintTextColor(0xffaaaaaa);
+        chatPanel.setPadding(dp(6), 0, dp(6), 0); chatPanel.setBackgroundColor(0xff171717);
+        chatScroll = new ScrollView(this); chatHistory = new TextView(this);
+        chatHistory.setTextColor(0xffffffff); chatHistory.setTextSize(14); chatHistory.setPadding(dp(8), dp(4), dp(8), dp(4));
+        chatHistory.setText("As mensagens aparecem no alto do filme."); chatScroll.addView(chatHistory);
+        chatPanel.addView(chatScroll, new LinearLayout.LayoutParams(-1, dp(56)));
+        LinearLayout inputRow = new LinearLayout(this); inputRow.setGravity(Gravity.CENTER_VERTICAL);
+        chatInput = new EditText(this); chatInput.setSingleLine(true); chatInput.setHint("Mensagem");
+        chatInput.setTextColor(0xffffffff); chatInput.setHintTextColor(0xffbbbbbb); chatInput.setTextSize(16);
         chatInput.setFilters(new InputFilter[]{new InputFilter.LengthFilter(280)});
-        chatInput.setImeOptions(EditorInfo.IME_ACTION_SEND);
-        chatInput.setOnEditorActionListener((v, actionId, event) -> {
-            if (actionId == EditorInfo.IME_ACTION_SEND) { sendChat(); return true; }
-            return false;
-        });
-        inputRow.addView(chatInput, new LinearLayout.LayoutParams(0, -2, 1));
-        Button send = new Button(this); send.setText("Enviar"); send.setOnClickListener(v -> sendChat()); inputRow.addView(send);
+        chatInput.setImeOptions(EditorInfo.IME_ACTION_SEND | EditorInfo.IME_FLAG_NO_EXTRACT_UI | EditorInfo.IME_FLAG_NO_FULLSCREEN);
+        chatInput.setOnEditorActionListener((v, action, event) -> { if (action == EditorInfo.IME_ACTION_SEND) { sendChat(); return true; } return false; });
+        inputRow.addView(chatInput, new LinearLayout.LayoutParams(0, dp(48), 1));
+        Button send = new Button(this); send.setText("Enviar"); send.setTextSize(12); send.setMinWidth(0); send.setMinimumWidth(0);
+        send.setOnClickListener(v -> sendChat()); inputRow.addView(send, new LinearLayout.LayoutParams(dp(70), dp(44)));
+        Button close = new Button(this); close.setText("×"); close.setContentDescription("Fechar chat"); close.setMinWidth(0); close.setMinimumWidth(0);
+        close.setOnClickListener(v -> closeChat()); inputRow.addView(close, new LinearLayout.LayoutParams(dp(44), dp(44)));
         chatPanel.addView(inputRow);
-        LinearLayout emojiRow = new LinearLayout(this); emojiRow.setOrientation(LinearLayout.HORIZONTAL);
+        emojiRow = new LinearLayout(this);
         for (String emoji : new String[]{"😀", "😂", "😍", "❤️", "👍"}) {
-            Button choice = new Button(this); choice.setText(emoji); choice.setTextSize(18);
+            Button choice = new Button(this); choice.setText(emoji); choice.setTextSize(17); choice.setMinHeight(0); choice.setMinimumHeight(0);
             choice.setOnClickListener(v -> chatInput.getText().insert(Math.max(0, chatInput.getSelectionStart()), emoji));
-            emojiRow.addView(choice, new LinearLayout.LayoutParams(0, dp(46), 1));
+            emojiRow.addView(choice, new LinearLayout.LayoutParams(0, dp(34), 1));
         }
-        chatPanel.addView(emojiRow);
-        Button close = new Button(this); close.setText("Fechar chat"); close.setOnClickListener(v -> closeChat()); chatPanel.addView(close);
-        root.addView(chatPanel, new FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM));
+        chatPanel.addView(emojiRow); mainLayout.addView(chatPanel, new LinearLayout.LayoutParams(-1, -2));
         chatPanel.setVisibility(View.GONE);
     }
+    void installInsets() {
+        if (Build.VERSION.SDK_INT >= 30) {
+            getWindow().setDecorFitsSystemWindows(false);
+            root.setOnApplyWindowInsetsListener((v, insets) -> {
+                Insets bars = insets.getInsets(WindowInsets.Type.systemBars() | WindowInsets.Type.displayCutout());
+                Insets keyboard = insets.getInsets(WindowInsets.Type.ime());
+                root.setPadding(bars.left, bars.top, bars.right, Math.max(bars.bottom, keyboard.bottom));
+                handleKeyboard(insets.isVisible(WindowInsets.Type.ime()));
+                return insets;
+            });
+            root.requestApplyInsets();
+        } else {
+            root.setFitsSystemWindows(true);
+            root.getViewTreeObserver().addOnGlobalLayoutListener(() -> {
+                Rect visible = new Rect(); root.getWindowVisibleDisplayFrame(visible);
+                handleKeyboard(root.getRootView().getHeight() - visible.bottom > dp(120));
+            });
+        }
+    }
+    void handleKeyboard(boolean visible) {
+        imeVisible = visible;
+        if (chatOpen && visible) keyboardSeen = true;
+        chatScroll.setVisibility(visible ? View.GONE : View.VISIBLE);
+        // Android's landscape keyboard can otherwise turn into a full-screen text editor.
+        emojiRow.setVisibility(visible && getResources().getConfiguration().orientation == Configuration.ORIENTATION_LANDSCAPE ? View.GONE : View.VISIBLE);
+        if (chatOpen && keyboardSeen && !visible) root.post(() -> { if (chatOpen && !imeVisible) closeChat(); });
+    }
     void updateLayout() {
-        controls.setVisibility(watching || fullscreen ? View.GONE : View.VISIBLE);
-        viewerBar.setVisibility(watching && !fullscreen ? View.VISIBLE : View.GONE);
-        fullscreenBar.setVisibility(fullscreen ? View.VISIBLE : View.GONE);
-        status.setVisibility(fullscreen ? View.GONE : View.VISIBLE);
-        mainLayout.setPadding(fullscreen ? 0 : dp(12), fullscreen ? 0 : dp(8), fullscreen ? 0 : dp(12), fullscreen ? 0 : dp(8));
+        setupScroll.setVisibility(watching ? View.GONE : View.VISIBLE);
+        videoPane.setVisibility(watching ? View.VISIBLE : View.GONE);
+        fullscreenButton.setText(fullscreen ? "Voltar" : "Tela cheia");
+        if (!watching && chatOpen) closeChat();
+        root.requestLayout(); screen.invalidate();
+    }
+    void revealControls() {
+        viewerBar.setVisibility(View.VISIBLE); ui.removeCallbacks(hideControls);
+        if (fullscreen && !chatOpen) ui.postDelayed(hideControls, 4500);
     }
     void enterFullscreen() {
         if (!watching) return;
-        fullscreen = true; updateLayout();
-        applyImmersive();
+        fullscreen = true; updateLayout(); applyImmersive(); revealControls();
         setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE);
     }
     void applyImmersive() {
-        getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
-            | View.SYSTEM_UI_FLAG_FULLSCREEN | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
-            | View.SYSTEM_UI_FLAG_LAYOUT_STABLE | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
-            | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION);
+        if (Build.VERSION.SDK_INT >= 30) {
+            WindowInsetsController controller = getWindow().getInsetsController();
+            if (controller != null) {
+                controller.setSystemBarsBehavior(WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
+                controller.hide(WindowInsets.Type.systemBars());
+            }
+        } else getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+            | View.SYSTEM_UI_FLAG_FULLSCREEN | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION);
+    }
+    void showSystemBars() {
+        if (Build.VERSION.SDK_INT >= 30) {
+            WindowInsetsController controller = getWindow().getInsetsController();
+            if (controller != null) controller.show(WindowInsets.Type.systemBars());
+        } else getWindow().getDecorView().setSystemUiVisibility(0);
     }
     void exitFullscreen() {
-        fullscreen = false; updateLayout();
-        getWindow().getDecorView().setSystemUiVisibility(0);
-        setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED);
+        fullscreen = false; ui.removeCallbacks(hideControls); viewerBar.setVisibility(View.VISIBLE);
+        showSystemBars(); setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED); updateLayout();
+    }
+    void openHostChat() {
+        if (!CaptureService.active) { show("Inicie uma transmissão para usar o chat flutuante."); return; }
+        if (!Settings.canDrawOverlays(this)) {
+            startActivityForResult(new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:" + getPackageName())), 5);
+        } else startService(new Intent(this, CaptureService.class).setAction("OPEN_CHAT"));
     }
     void openChat() {
-        chatPanel.setVisibility(View.VISIBLE); unreadChat = false; updateChatButtons();
-        if (fullscreen) getWindow().getDecorView().setSystemUiVisibility(0);
+        if (CaptureService.active) { openHostChat(); return; }
+        if (!watching) { show("Entre em uma sala primeiro."); return; }
+        chatOpen = true; keyboardSeen = false; chatPanel.setVisibility(View.VISIBLE); unreadChat = false;
+        updateChatButtons(); ui.removeCallbacks(hideControls); viewerBar.setVisibility(View.GONE); showSystemBars();
         chatInput.requestFocus();
-        chatInput.post(() -> ((InputMethodManager)getSystemService(INPUT_METHOD_SERVICE)).showSoftInput(chatInput, InputMethodManager.SHOW_IMPLICIT));
+        chatInput.postDelayed(() -> { if (chatOpen) ((InputMethodManager)getSystemService(INPUT_METHOD_SERVICE)).showSoftInput(chatInput, InputMethodManager.SHOW_IMPLICIT); }, 150);
     }
     void closeChat() {
-        chatPanel.setVisibility(View.GONE);
+        chatOpen = false; keyboardSeen = false; chatPanel.setVisibility(View.GONE);
         ((InputMethodManager)getSystemService(INPUT_METHOD_SERVICE)).hideSoftInputFromWindow(chatInput.getWindowToken(), 0);
-        chatInput.clearFocus();
+        chatInput.clearFocus(); screen.requestFocus();
         if (fullscreen) applyImmersive();
+        if (watching) revealControls();
     }
-    void updateChatButtons() {
-        String label = unreadChat ? "Chat • nova" : "Chat";
-        chatButton.setText(label); fullscreenChatButton.setText(label);
-    }
+    void updateChatButtons() { chatButton.setText(unreadChat ? "Chat •" : "Chat"); }
     void receiveChat(String from, String text) {
         if (text == null || text.isEmpty()) return;
-        boolean mine = ("host".equals(from) && CaptureService.active) || ("viewer".equals(from) && watching);
-        String line = (mine ? "Você: " : "Amigo: ") + text;
+        String line = (("host".equals(from) && CaptureService.active) || ("viewer".equals(from) && watching) ? "Você: " : "Amigo: ") + text;
         ui.post(() -> {
-            chatLines.addLast(line);
-            while (chatLines.size() > 20) chatLines.removeFirst();
-            chatHistory.setText(String.join("\n", chatLines));
-            chatScroll.post(() -> chatScroll.fullScroll(View.FOCUS_DOWN));
-            if (chatPanel.getVisibility() != View.VISIBLE) { unreadChat = true; updateChatButtons(); }
+            if (destroyed) return;
+            chatLines.addLast(line); while (chatLines.size() > 20) chatLines.removeFirst();
+            chatHistory.setText(String.join("\n", chatLines)); chatScroll.post(() -> chatScroll.fullScroll(View.FOCUS_DOWN));
+            if (!chatOpen) { unreadChat = true; updateChatButtons(); }
             messageBanner.setText(line); messageBanner.setVisibility(View.VISIBLE);
             int sequence = ++bannerSequence;
             ui.postDelayed(() -> { if (sequence == bannerSequence) messageBanner.setVisibility(View.GONE); }, 5000);
         });
     }
     void sendChat() {
-        String text = chatInput.getText().toString().trim();
-        if (text.isEmpty()) return;
+        String text = chatInput.getText().toString().trim(); if (text.isEmpty()) return;
         try {
-            if (CaptureService.active) {
-                startService(new Intent(this, CaptureService.class).setAction("CHAT").putExtra("message", text));
-            } else if (watching && socket != null) {
-                if (!socket.send(new JSONObject().put("type", "chat").put("text", text).toString())) {
-                    show("Chat desconectado. Tente novamente."); return;
-                }
-            } else { show("Entre em uma sala antes de enviar mensagens."); return; }
-            chatInput.setText("");
+            if (watching && socket != null && socket.send(new JSONObject().put("type", "chat").put("text", text).toString())) chatInput.setText("");
+            else show("Chat desconectado. Entre na sala novamente.");
         } catch (Exception e) { show("Não foi possível enviar a mensagem."); }
     }
     void endSession() {
-        if (fullscreen) exitFullscreen();
-        closeChat(); stopViewer(); stopService(new Intent(this, CaptureService.class));
-        updateLayout(); show("Encerrado.");
+        closeChat(); stopViewer(); stopService(new Intent(this, CaptureService.class)); updateLayout(); show("Encerrado.");
     }
     @Override public void onBackPressed() {
-        if (chatPanel.getVisibility() == View.VISIBLE) closeChat();
-        else if (fullscreen) exitFullscreen();
-        else super.onBackPressed();
+        if (chatOpen) closeChat(); else if (fullscreen) exitFullscreen(); else super.onBackPressed();
     }
-    @Override public void onConfigurationChanged(Configuration newConfig) { super.onConfigurationChanged(newConfig); }
+    @Override public void onConfigurationChanged(Configuration config) {
+        super.onConfigurationChanged(config); updateLayout(); root.requestApplyInsets();
+        if (fullscreen && !chatOpen) applyImmersive();
+    }
+    @Override public void onWindowFocusChanged(boolean focused) {
+        super.onWindowFocusChanged(focused); if (focused && fullscreen && !chatOpen) applyImmersive();
+    }
+
     void show(String s) { runOnUiThread(() -> status.setText(s == null ? "" : s)); }
     String validEndpoint(String input) {
         HttpUrl u = HttpUrl.parse(input.trim());
@@ -231,8 +277,17 @@ public class MainActivity extends Activity {
             if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
                 requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO}, 1); return;
             }
-            requestScreen();
+            requestHostOverlay();
         } catch (Exception e) { show(e.getMessage()); }
+    }
+    void requestHostOverlay() {
+        if (Settings.canDrawOverlays(this)) { requestScreen(); return; }
+        new AlertDialog.Builder(this).setTitle("Chat sobre o filme")
+            .setMessage("Ative ‘Aparecer sobre outros apps’ para ler e responder mensagens enquanto transmite. A janela só aparece durante a transmissão.")
+            .setPositiveButton("Permitir chat flutuante", (dialog, which) -> {
+                try { startActivityForResult(new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:" + getPackageName())), 4); }
+                catch (Exception e) { show("Abra as configurações do Android e permita aparecer sobre outros apps."); }
+            }).setNegativeButton("Cancelar", null).show();
     }
     void requestScreen() {
         MediaProjectionManager pm = (MediaProjectionManager)getSystemService(MEDIA_PROJECTION_SERVICE);
@@ -240,10 +295,16 @@ public class MainActivity extends Activity {
     }
     @Override public void onRequestPermissionsResult(int code, String[] permissions, int[] results) {
         super.onRequestPermissionsResult(code, permissions, results);
-        if (code == 1) { if (results.length > 0 && results[0] == PackageManager.PERMISSION_GRANTED) requestScreen(); else show("Sem a permissão de áudio não é possível transmitir o som."); }
+        if (code == 1) { if (results.length > 0 && results[0] == PackageManager.PERMISSION_GRANTED) requestHostOverlay(); else show("Sem a permissão de áudio não é possível transmitir o som."); }
     }
     @Override protected void onActivityResult(int code, int result, Intent data) {
         super.onActivityResult(code, result, data);
+        if (code == 4) {
+            if (Settings.canDrawOverlays(this)) requestScreen();
+            else show("Permita aparecer sobre outros apps para usar o chat ao transmitir.");
+            return;
+        }
+        if (code == 5) { if (Settings.canDrawOverlays(this) && CaptureService.active) openHostChat(); return; }
         if (code != 2) return;
         if (result != RESULT_OK || data == null) { show("Compartilhamento cancelado."); return; }
         Intent service = new Intent(this, CaptureService.class).putExtra("result", result).putExtra("data", data).putExtra("endpoint", pendingEndpoint).putExtra("room", pendingRoom);
@@ -292,6 +353,7 @@ public class MainActivity extends Activity {
         } catch (Exception e) { stopViewer(); show(e.getMessage()); }
     }
     void startPlayback() {
+        final int generation = ++playbackGeneration;
         audioThread = new Thread(() -> {
             AudioTrack track = null;
             try {
@@ -313,10 +375,8 @@ public class MainActivity extends Activity {
                 if (jpeg != null) {
                     Bitmap bitmap = BitmapFactory.decodeByteArray(jpeg, 0, jpeg.length);
                     if (bitmap != null) runOnUiThread(() -> {
-                        if (watching) {
-                            Bitmap old = currentFrame; currentFrame = bitmap; screen.setImageBitmap(bitmap);
-                            if (old != null) old.recycle();
-                        } else bitmap.recycle();
+                        if (watching && !destroyed && generation == playbackGeneration) screen.setFrame(bitmap);
+                        else bitmap.recycle();
                     });
                 }
                 Thread.sleep(80);
@@ -324,13 +384,13 @@ public class MainActivity extends Activity {
         }, "CinemaImagem"); imageThread.start();
     }
     void stopViewer() {
-        watching = false; if (socket != null) { WebSocket old = socket; socket = null; old.cancel(); }
+        watching = false; ++playbackGeneration; if (socket != null) { WebSocket old = socket; socket = null; old.cancel(); }
         if (audioThread != null) { audioThread.interrupt(); try { audioThread.join(500); } catch (InterruptedException ignored) {} audioThread = null; }
         if (imageThread != null) { imageThread.interrupt(); try { imageThread.join(500); } catch (InterruptedException ignored) {} imageThread = null; }
         sound.clear(); latest.set(null);
-        if (screen != null) screen.setImageDrawable(null);
-        if (currentFrame != null) { currentFrame.recycle(); currentFrame = null; }
+        if (screen != null) screen.clearFrame();
+        if (chatOpen) closeChat();
         if (fullscreen) exitFullscreen(); else if (controls != null) updateLayout();
     }
-    @Override protected void onDestroy() { stopViewer(); unregisterReceiver(messages); client.dispatcher().executorService().shutdown(); super.onDestroy(); }
+    @Override protected void onDestroy() { destroyed = true; stopViewer(); ui.removeCallbacksAndMessages(null); unregisterReceiver(messages); client.dispatcher().executorService().shutdown(); super.onDestroy(); }
 }
