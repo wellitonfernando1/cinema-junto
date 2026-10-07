@@ -9,6 +9,8 @@ import android.view.*;
 import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputMethodManager;
 import android.widget.*;
+import android.window.OnBackInvokedCallback;
+import android.window.OnBackInvokedDispatcher;
 import java.util.ArrayDeque;
 
 /** Small windows owned by the capture service; removed as soon as transmission stops. */
@@ -133,7 +135,13 @@ final class HostChatOverlay {
         b.setMinHeight(0); b.setMinimumHeight(0); b.setPadding(dp(3), 0, dp(3), 0); return b;
     }
     void showKeyboard() {
-        main.postDelayed(() -> { if (input != null && composer != null) context.getSystemService(InputMethodManager.class).showSoftInput(input, InputMethodManager.SHOW_IMPLICIT); }, 200);
+        main.postDelayed(() -> {
+            if (input == null || composer == null || !input.hasWindowFocus()) return;
+            input.requestFocus();
+            if (Build.VERSION.SDK_INT >= 30 && input.getWindowInsetsController() != null)
+                input.getWindowInsetsController().show(WindowInsets.Type.ime());
+            else context.getSystemService(InputMethodManager.class).showSoftInput(input, 0);
+        }, 200);
     }
     void send() {
         if (input == null) return;
@@ -162,7 +170,27 @@ final class HostChatOverlay {
         if (bubble != null) { remove(bubble); bubble = null; }
     }
     final class Composer extends LinearLayout {
+        OnBackInvokedDispatcher backDispatcher;
+        OnBackInvokedCallback backCallback;
         Composer(Context context) { super(context); }
+        @Override public void onWindowFocusChanged(boolean focused) {
+            super.onWindowFocusChanged(focused);
+            if (focused && composer == this) {
+                showKeyboard();
+                if (Build.VERSION.SDK_INT >= 33 && backDispatcher == null) {
+                    backDispatcher = findOnBackInvokedDispatcher();
+                    if (backDispatcher != null) {
+                        backCallback = HostChatOverlay.this::closeComposer;
+                        backDispatcher.registerOnBackInvokedCallback(OnBackInvokedDispatcher.PRIORITY_OVERLAY, backCallback);
+                    }
+                }
+            }
+        }
+        @Override protected void onDetachedFromWindow() {
+            if (Build.VERSION.SDK_INT >= 33 && backDispatcher != null && backCallback != null)
+                backDispatcher.unregisterOnBackInvokedCallback(backCallback);
+            super.onDetachedFromWindow();
+        }
         @Override public boolean dispatchKeyEventPreIme(KeyEvent event) {
             if (event.getKeyCode() == KeyEvent.KEYCODE_BACK && event.getAction() == KeyEvent.ACTION_UP) { closeComposer(); return true; }
             return super.dispatchKeyEventPreIme(event);

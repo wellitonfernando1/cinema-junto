@@ -11,6 +11,7 @@ import android.view.*;
 import androidx.test.ext.junit.runners.AndroidJUnit4;
 import androidx.test.platform.app.InstrumentationRegistry;
 import androidx.test.uiautomator.UiDevice;
+import androidx.test.uiautomator.By;
 import org.junit.*;
 import org.junit.runner.RunWith;
 import java.io.*;
@@ -60,13 +61,18 @@ public class ViewingTest {
         return bitmap;
     }
     void assertFilmVisible(String name) throws Exception {
-        instrumentation.waitForIdleSync(); Thread.sleep(300);
-        Bitmap shot = screenshot(name);
-        int[] position = new int[2]; main(() -> activity.screen.getLocationOnScreen(position));
-        int x = Math.min(shot.getWidth()-1, position[0] + activity.screen.getWidth()/2);
-        int y = Math.min(shot.getHeight()-1, position[1] + activity.screen.getHeight()/2);
-        int color = shot.getPixel(x,y); shot.recycle();
-        assertTrue("The visible movie became black: " + Integer.toHexString(color), Color.green(color) > 160 && Color.red(color) < 70);
+        // View layout may complete before the system compositor releases its rotation snapshot.
+        long deadline = SystemClock.elapsedRealtime() + 10000; int color = 0;
+        while (SystemClock.elapsedRealtime() < deadline) {
+            instrumentation.waitForIdleSync(); Thread.sleep(150);
+            Bitmap shot = screenshot(name);
+            int[] position = new int[2]; main(() -> activity.screen.getLocationOnScreen(position));
+            int x = Math.min(shot.getWidth()-1, position[0] + activity.screen.getWidth()/2);
+            int y = Math.min(shot.getHeight()-1, position[1] + activity.screen.getHeight()/2);
+            color = shot.getPixel(x,y); shot.recycle();
+            if (Color.green(color) > 160 && Color.red(color) < 70) return;
+        }
+        fail("The visible movie became black: " + Integer.toHexString(color));
     }
     @Test public void fullscreenKeepsDecodedMovieAcrossRotation() throws Exception {
         startFilm(); Thread receiver = activity.imageThread; int generation = activity.playbackGeneration;
@@ -99,13 +105,16 @@ public class ViewingTest {
         assertTrue("Overlay permission missing", Settings.canDrawOverlays(activity));
         AtomicReference<String> sent = new AtomicReference<>();
         main(() -> { overlay = new HostChatOverlay(activity.getApplicationContext(), text -> { sent.set(text); return true; }); overlay.show(); });
-        activity.startActivity(new Intent(Settings.ACTION_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+        device.pressHome();
         until("Host button did not attach", () -> overlay.bubble != null && overlay.bubble.isAttachedToWindow());
+        until("Host button is not visible over the launcher", () -> device.hasObject(By.desc("Abrir chat flutuante")));
         main(() -> overlay.receive("viewer", "Estou assistindo ❤️"));
         until("Message is not above the other app", () -> overlay.banner != null && overlay.banner.isAttachedToWindow());
-        screenshot("host-message-over-settings").recycle();
+        until("Host message is attached but hidden", () -> device.hasObject(By.desc("Mensagem no topo: Amigo: Estou assistindo ❤️")));
+        screenshot("host-message-over-launcher").recycle();
         main(() -> overlay.open()); until("Overlay keyboard did not open", () -> overlay.input != null && overlay.input.hasWindowFocus());
-        Thread.sleep(1000); assertNotNull("Keyboard closed the overlay unexpectedly", overlay.composer);
+        until("Host keyboard is not actually visible", () -> device.hasObject(By.pkg("com.android.inputmethod.latin")));
+        assertNotNull("Keyboard closed the overlay unexpectedly", overlay.composer);
         main(() -> { overlay.input.setText("Oi 😀"); overlay.send(); });
         assertEquals("Oi 😀", sent.get()); assertEquals("", overlay.input.getText().toString());
         assertTrue("Host composer covers the entire screen", overlay.composer.getHeight() <= activity.dp(130));

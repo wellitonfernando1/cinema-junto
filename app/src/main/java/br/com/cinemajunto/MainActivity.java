@@ -100,6 +100,8 @@ public class MainActivity extends Activity {
         bannerPosition.setMargins(dp(10), dp(8), dp(10), 0); videoPane.addView(messageBanner, bannerPosition);
         messageBanner.setVisibility(View.GONE);
         buildChatPanel(); setContentView(root); installInsets(); updateLayout();
+        if (Build.VERSION.SDK_INT >= 33) getOnBackInvokedDispatcher().registerOnBackInvokedCallback(
+            android.window.OnBackInvokedDispatcher.PRIORITY_DEFAULT, this::onBackPressed);
         IntentFilter filter = new IntentFilter(getPackageName() + ".STATUS");
         if (Build.VERSION.SDK_INT >= 33) registerReceiver(messages, filter, Context.RECEIVER_NOT_EXPORTED); else registerReceiver(messages, filter);
         if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED)

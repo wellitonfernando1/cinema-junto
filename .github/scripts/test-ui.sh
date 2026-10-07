@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 mkdir -p ui-results
+collect_results() {
+  adb pull /sdcard/Android/data/br.com.cinemajunto/files/ui-test ui-results/screenshots || true
+  adb logcat -d > ui-results/logcat.txt || true
+  adb shell dumpsys input_method > ui-results/input-method.txt || true
+}
+trap collect_results EXIT
 adb install "$(find test-apks -name app-debug.apk -print -quit)"
 adb install "$(find test-apks -name app-debug-androidTest.apk -print -quit)"
 adb shell appops set br.com.cinemajunto SYSTEM_ALERT_WINDOW allow
@@ -10,5 +16,4 @@ if [ "$api" -ge 33 ]; then
 fi
 adb shell settings put secure show_ime_with_hard_keyboard 1
 adb shell am instrument -w -r br.com.cinemajunto.test/androidx.test.runner.AndroidJUnitRunner | tee ui-results/test-output.txt
-adb pull /sdcard/Android/data/br.com.cinemajunto/files/ui-test ui-results/screenshots || true
 grep -q 'OK (4 tests)' ui-results/test-output.txt
