@@ -4,7 +4,8 @@ import android.Manifest;
 import android.app.Instrumentation;
 import android.content.Intent;
 import android.content.pm.PackageManager;
-import android.content.pm.ResolveInfo;
+import android.graphics.Bitmap;
+import android.graphics.Color;
 import android.os.Build;
 import android.os.SystemClock;
 import android.provider.Settings;
@@ -16,6 +17,7 @@ import androidx.test.uiautomator.UiDevice;
 import androidx.test.uiautomator.UiObject2;
 import androidx.test.uiautomator.Until;
 import java.io.File;
+import java.io.FileOutputStream;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -66,6 +68,39 @@ public class SourceCaptureTest {
     }
 
     void failWithEvidence(String message) { saveEvidence(new AssertionError(message)); fail(message); }
+
+    Bitmap screenshot(String name) throws Exception {
+        Bitmap bitmap = instrumentation.getUiAutomation().takeScreenshot();
+        assertNotNull("The compositor screenshot was unavailable", bitmap);
+        File directory = new File(instrumentation.getTargetContext().getExternalFilesDir(null), "ui-test");
+        directory.mkdirs();
+        try (FileOutputStream output = new FileOutputStream(new File(directory, name + ".png"))) {
+            bitmap.compress(Bitmap.CompressFormat.PNG, 100, output);
+        }
+        return bitmap;
+    }
+
+    float topDifference(Bitmap before) {
+        Bitmap after = instrumentation.getUiAutomation().takeScreenshot();
+        if (after == null) return 0;
+        try {
+            assertEquals(before.getWidth(), after.getWidth());
+            assertEquals(before.getHeight(), after.getHeight());
+            int statusResource = activity.getResources().getIdentifier("status_bar_height", "dimen", "android");
+            int statusHeight = statusResource == 0 ? activity.dp(24) : activity.getResources().getDimensionPixelSize(statusResource);
+            int different = 0, total = 0;
+            // The banner is not touchable, so accessibility omits it. This crop is inside
+            // its text/background, below system icons and above both floating buttons.
+            for (int y = statusHeight + activity.dp(12); y < Math.min(after.getHeight(), statusHeight + activity.dp(36)); y += 4) {
+                for (int x = activity.dp(16); x < after.getWidth() - activity.dp(96); x += 4) {
+                    int a = after.getPixel(x, y), b = before.getPixel(x, y); total++;
+                    if (Math.abs(Color.red(a) - Color.red(b)) + Math.abs(Color.green(a) - Color.green(b))
+                            + Math.abs(Color.blue(a) - Color.blue(b)) > 35) different++;
+                }
+            }
+            return total == 0 ? 0 : different / (float)total;
+        } finally { after.recycle(); }
+    }
 
     interface Condition { boolean ready(); }
 
@@ -206,35 +241,38 @@ public class SourceCaptureTest {
         assertTrue("Microphone stopped the capture service", CaptureService.active);
         assertEquals(640, lastVoice.get().payload.length);
         assertTrue(lastVoice.get().timestampUs > 0);
+        screenshot("source-host-speaking").recycle();
         main(() -> activity.startService(new Intent(activity, CaptureService.class).setAction("VOICE_RELEASE")));
         until("Releasing the host microphone did not end its voice turn", 3000, () -> !hostTalking.get());
         assertTrue("Releasing voice ended the movie transmission", CaptureService.active);
 
-        ResolveInfo home = activity.getPackageManager().resolveActivity(
-            new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME), PackageManager.MATCH_DEFAULT_ONLY);
-        assertNotNull("The emulator must have a home application", home);
-        String homePackage = home.activityInfo.packageName;
-        assertNotEquals("The chat must be checked over another application", activity.getPackageName(), homePackage);
         assertTrue("Could not leave Cinema Junto for the real home application", device.pressHome());
         until("The home application did not appear under the capture overlays", 4000,
-            () -> device.hasObject(By.pkg(homePackage)));
+            () -> device.getCurrentPackageName() != null && !activity.getPackageName().equals(device.getCurrentPackageName())
+                && !"com.android.systemui".equals(device.getCurrentPackageName()));
+        assertNotEquals("The chat must be checked over another application", activity.getPackageName(), device.getCurrentPackageName());
         until("The capture service's compact chat button is missing over the home application", 3000,
             () -> device.hasObject(By.desc("Abrir chat flutuante")));
 
+        Thread.sleep(250); // Let the launcher finish its transition before comparing its pixels.
+        Bitmap beforeChat = screenshot("source-home-before-chat");
         int framesBeforeChat = frames.get(), pcmBeforeChat = pcm.get();
         String chatText = "Oi, estou vendo o filme";
-        String bannerDescription = "Mensagem no topo: Amigo: " + chatText;
         assertTrue("The existing viewer could not queue its message",
             viewer.send(new JSONObject().put("type", "chat").put("text", chatText).toString()));
-        until("The relayed viewer message did not appear above the home application while media continued", 5000,
-            () -> chatText.equals(lastChatEcho.get()) && device.hasObject(By.desc(bannerDescription))
-                && frames.get() > framesBeforeChat && pcm.get() > pcmBeforeChat);
-        assertTrue("Receiving a floating message ended the movie transmission", CaptureService.active);
+        try {
+            until("The relayed viewer message did not appear above the home application while media continued", 4500,
+                () -> chatText.equals(lastChatEcho.get()) && device.hasObject(By.desc("Abrir chat flutuante")
+                        .text(Pattern.compile("Chat •", Pattern.CASE_INSENSITIVE)))
+                    && frames.get() > framesBeforeChat && pcm.get() > pcmBeforeChat && topDifference(beforeChat) > 0.3f);
+            screenshot("source-chat-over-home").recycle();
+            assertTrue("Receiving a floating message ended the movie transmission", CaptureService.active);
 
-        main(() -> activity.endSession());
-        assertTrue("Stopping capture did not remove its floating message",
-            device.wait(Until.gone(By.desc(bannerDescription)), 3000));
-        assertTrue("Stopping capture did not remove its compact chat button",
-            device.wait(Until.gone(By.desc("Abrir chat flutuante")), 3000));
+            main(() -> activity.endSession());
+            assertTrue("Stopping capture did not remove its compact chat button",
+                device.wait(Until.gone(By.desc("Abrir chat flutuante")), 3000));
+            until("Stopping capture did not remove its visible message from the other application", 3000,
+                () -> topDifference(beforeChat) < 0.1f);
+        } finally { beforeChat.recycle(); }
     }
 }
