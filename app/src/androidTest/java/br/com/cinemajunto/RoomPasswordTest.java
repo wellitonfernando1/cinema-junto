@@ -89,6 +89,16 @@ public class RoomPasswordTest {
                 assertTrue("An invalid password needs a visible explanation of its limits",
                     activity.status.getText().toString().contains("4 a 24"));
             }
+            activity.invitation.setText("pipoca42");
+            boolean wasStarting = CaptureService.starting;
+            try {
+                CaptureService.starting = true; activity.startViewer();
+                assertFalse("Connecting a host must block a simultaneous viewer", activity.watching);
+                assertNull(activity.socket);
+                CaptureService.starting = false; activity.hostFlowPending = true; activity.startViewer();
+                assertFalse("Pending capture consent must block a simultaneous viewer", activity.watching);
+                assertNull(activity.socket);
+            } finally { CaptureService.starting = wasStarting; activity.hostFlowPending = false; }
         });
     }
 

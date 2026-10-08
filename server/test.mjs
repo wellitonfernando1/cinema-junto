@@ -88,6 +88,7 @@ test('rejeita convidado sem anfitrião, convite inválido, JSON nulo e terceiro 
     ws.send(JSON.stringify(message)); const [code] = await closed; assert.equal(code, 1008);
   }
   await rejected({ role: 'viewer', room: 'c'.repeat(64) }); await rejected({ role: 'host', room: '1234' }); await rejected(null);
+  await rejected({ role: 'host', room: ['d'.repeat(64)] });
   const host = await join(url, 'host', 'd'.repeat(64));
   await join(url, 'viewer', 'd'.repeat(64));
   await rejected({ role: 'viewer', room: 'd'.repeat(64) }); await rejected({ role: 'host', room: 'd'.repeat(64) }); host.close();

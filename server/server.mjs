@@ -149,7 +149,7 @@ export function createRelay({ ttlMs = 2 * 60 * 60 * 1000, mediaBufferLimitBytes 
         if (binary || data.length > 2048) { rejectJoin(1008, 'Entrada inválida'); return; }
         let msg;
         try { msg = JSON.parse(data.toString()); } catch { rejectJoin(1008, 'Entrada inválida'); return; }
-        if (!msg || typeof msg !== 'object' || Array.isArray(msg) || !/^[a-f0-9]{64}$/.test(msg.room) || !['host','viewer'].includes(msg.role)) { rejectJoin(1008, 'Convite inválido'); return; }
+        if (!msg || typeof msg !== 'object' || Array.isArray(msg) || typeof msg.room !== 'string' || !/^[a-f0-9]{64}$/.test(msg.room) || !['host','viewer'].includes(msg.role)) { rejectJoin(1008, 'Senha inválida.'); return; }
         if (Object.hasOwn(msg, 'device') && !validDevice(msg.device)) { rejectJoin(1008, 'Identificação do aparelho inválida.'); return; }
         const device = msg.device?.toLowerCase();
         role = msg.role; key = msg.room;
@@ -228,7 +228,7 @@ export function createRelay({ ttlMs = 2 * 60 * 60 * 1000, mediaBufferLimitBytes 
       room[role] = null;
       if (role === 'host') {
         clearTimeout(room.timer); rooms.delete(key); room.viewer?.close(1000, 'Transmissão encerrada');
-      } else send(room.host, JSON.stringify({ status: 'Seu amigo saiu. Pode enviar o convite novamente.' }));
+      } else send(room.host, JSON.stringify({ status: 'Seu amigo saiu. Pode enviar a senha novamente.' }));
     });
   });
   const heartbeat = setInterval(() => {

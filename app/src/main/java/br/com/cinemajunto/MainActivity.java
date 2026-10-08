@@ -420,7 +420,7 @@ public class MainActivity extends Activity {
     }
     void startViewer() {
         try {
-            if (CaptureService.active) { show("Encerre sua transmissão antes de assistir."); return; }
+            if (CaptureService.active || CaptureService.starting || hostFlowPending) { show("Encerre ou cancele sua transmissão antes de assistir."); return; }
             String value = invitation.getText().toString().trim();
             String base, room;
             if (value.startsWith("https://")) {
