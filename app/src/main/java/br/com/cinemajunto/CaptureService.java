@@ -236,6 +236,9 @@ public class CaptureService extends Service {
         format.setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 1);
         format.setInteger(MediaFormat.KEY_MAX_B_FRAMES, 0);
         format.setInteger(MediaFormat.KEY_PROFILE, MediaCodecInfo.CodecProfileLevel.AVCProfileBaseline);
+        // Legacy OMX encoders require a level whenever an explicit profile is supplied.
+        // Level 3.1 covers even the maximum 960x960 capture at 24 frames per second.
+        format.setInteger(MediaFormat.KEY_LEVEL, MediaCodecInfo.CodecProfileLevel.AVCLevel31);
         format.setLong(MediaFormat.KEY_REPEAT_PREVIOUS_FRAME_AFTER, 1000000L / 24);
         waitingForKeyFrame = true; configurationPending = true; cachedVideoConfig = null;
         encoderTimestampOffsetUs = Long.MIN_VALUE; lastSyncRequestUs = 0;
