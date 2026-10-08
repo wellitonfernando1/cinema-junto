@@ -1,30 +1,46 @@
 package br.com.cinemajunto;
 
 import android.content.Context;
+import android.content.res.ColorStateList;
+import android.graphics.drawable.GradientDrawable;
+import android.graphics.drawable.StateListDrawable;
 import android.os.Looper;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.View;
-import android.widget.Button;
+import android.widget.ImageButton;
 
 /** Hold-to-talk control. Every end or cancellation path releases the microphone. */
-final class VoiceButton extends Button {
+final class VoiceButton extends ImageButton {
     final Runnable pressAction, releaseAction;
     boolean held;
     int pointer = -1;
 
     VoiceButton(Context context, Runnable press, Runnable release) {
         super(context); pressAction = press; releaseAction = release;
-        setTextSize(13); setTextColor(0xffffffff); setMinWidth(0); setMinimumWidth(0);
-        int padding = Math.round(8 * getResources().getDisplayMetrics().density);
-        setPadding(padding, 0, padding, 0); setTalking(false);
-        setContentDescription("Segure para falar com seu amigo. Solte para encerrar a voz.");
+        setMinimumWidth(0); setMinimumHeight(0);
+        int padding = Math.round(14 * getResources().getDisplayMetrics().density);
+        setPadding(padding, padding, padding, padding);
+        setImageResource(R.drawable.ic_microphone); setScaleType(ScaleType.CENTER_INSIDE);
+        setImageTintList(ColorStateList.valueOf(0xffffffff));
+        StateListDrawable background = new StateListDrawable();
+        background.addState(new int[]{android.R.attr.state_selected}, circle(0xffb71c1c));
+        background.addState(new int[]{android.R.attr.state_pressed}, circle(0xffb71c1c));
+        background.addState(new int[]{}, circle(0xffe53935));
+        setBackground(background); setBackgroundTintList(null);
+        setElevation(4 * getResources().getDisplayMetrics().density); setTalking(false);
+    }
+
+    GradientDrawable circle(int color) {
+        GradientDrawable shape = new GradientDrawable();
+        shape.setShape(GradientDrawable.OVAL); shape.setColor(color); return shape;
     }
 
     void setTalking(boolean active) {
         if (Looper.myLooper() != Looper.getMainLooper()) { post(() -> setTalking(active)); return; }
-        setText(active ? "Falando… solte" : "🎙 Segure para falar");
-        setBackgroundColor(active ? 0xdd9b2424 : 0xdd303030);
+        setSelected(active);
+        setContentDescription(active ? "Falando. Solte para encerrar a voz."
+            : "Segure para falar com seu amigo. Solte para encerrar a voz.");
     }
 
     void begin() {

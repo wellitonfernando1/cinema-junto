@@ -73,7 +73,7 @@ public class MainActivity extends Activity {
         controls.setPadding(dp(16), dp(12), dp(16), dp(12)); controls.setBackgroundColor(0xfffafafa);
         setupScroll.addView(controls); mainLayout.addView(setupScroll, new LinearLayout.LayoutParams(-1, 0, 1));
         TextView title = new TextView(this); title.setTextColor(Color.BLACK); title.setText("Cinema Junto Chat Final"); title.setTextSize(24); controls.addView(title);
-        TextView subtitle = new TextView(this); subtitle.setTextColor(Color.BLACK); subtitle.setText("Filme, chat, microfone e senha simples · Versão 0.6"); controls.addView(subtitle);
+        TextView subtitle = new TextView(this); subtitle.setTextColor(Color.BLACK); subtitle.setText("Filme, chat, microfone e senha simples · Versão 0.7"); controls.addView(subtitle);
         endpoint = new EditText(this); endpoint.setSingleLine(true); endpoint.setHint("Endereço do servidor");
         readableInput(endpoint);
         endpoint.setText(getPreferences(0).getString("endpoint", "https://cinema-junto-welliton.onrender.com/")); controls.addView(endpoint);
@@ -111,10 +111,10 @@ public class MainActivity extends Activity {
         messageBanner = new TextView(this); messageBanner.setTextColor(0xffffffff); messageBanner.setTextSize(16);
         messageBanner.setMaxLines(2); messageBanner.setPadding(dp(12), dp(7), dp(12), dp(7)); messageBanner.setBackgroundColor(0xb3202020);
         FrameLayout.LayoutParams bannerPosition = new FrameLayout.LayoutParams(-1, -2, Gravity.TOP);
-        bannerPosition.setMargins(dp(10), dp(58), dp(10), 0); videoPane.addView(messageBanner, bannerPosition);
+        bannerPosition.setMargins(dp(10), dp(72), dp(10), 0); videoPane.addView(messageBanner, bannerPosition);
         messageBanner.setVisibility(View.GONE);
         microphone = new VoiceButton(this, this::pressVoice, () -> { if (voice != null) voice.release(); });
-        FrameLayout.LayoutParams micPosition = new FrameLayout.LayoutParams(dp(195), dp(44), Gravity.TOP | Gravity.END);
+        FrameLayout.LayoutParams micPosition = new FrameLayout.LayoutParams(dp(56), dp(56), Gravity.TOP | Gravity.RIGHT);
         micPosition.setMargins(dp(8), dp(8), dp(8), 0); videoPane.addView(microphone, micPosition);
         buildChatPanel(); setContentView(root); installInsets(); updateLayout();
         if (Build.VERSION.SDK_INT >= 33) getOnBackInvokedDispatcher().registerOnBackInvokedCallback(

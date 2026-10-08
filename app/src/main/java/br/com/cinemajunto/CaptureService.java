@@ -15,6 +15,7 @@ import android.view.Display;
 import android.view.Gravity;
 import android.view.Surface;
 import android.view.WindowManager;
+import android.view.WindowInsets;
 import java.nio.ByteBuffer;
 import java.util.Arrays;
 import java.util.concurrent.CountDownLatch;
@@ -94,9 +95,10 @@ public class CaptureService extends Service {
         voiceWindows = getSystemService(WindowManager.class);
         voiceButton = new VoiceButton(this, () -> { VoiceTalk talk = voice; if (talk != null) talk.press(); },
             () -> { VoiceTalk talk = voice; if (talk != null) talk.release(); });
-        WindowManager.LayoutParams position = new WindowManager.LayoutParams(dp(190), dp(44), WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+        WindowManager.LayoutParams position = new WindowManager.LayoutParams(dp(56), dp(56), WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL, PixelFormat.TRANSLUCENT);
-        position.gravity = Gravity.TOP | Gravity.CENTER_HORIZONTAL; position.y = dp(64);
+        position.gravity = Gravity.TOP | Gravity.RIGHT; position.x = dp(8); position.y = dp(8);
+        if (Build.VERSION.SDK_INT >= 30) position.setFitInsetsTypes(WindowInsets.Type.systemBars() | WindowInsets.Type.displayCutout());
         try { voiceWindows.addView(voiceButton, position); }
         catch (Exception error) { voiceButton = null; status("Não foi possível mostrar o botão de voz. Confira a permissão para aparecer sobre outros apps."); }
     }

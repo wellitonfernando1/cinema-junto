@@ -55,7 +55,7 @@ final class HostChatOverlay {
         bubble.setBackgroundColor(0xcc292929); bubble.setContentDescription("Abrir chat flutuante");
         bubble.setMinWidth(0); bubble.setMinimumWidth(0); bubble.setPadding(dp(8), 0, dp(8), 0);
         bubbleParams = params(dp(64), dp(44), Gravity.TOP | Gravity.END, false);
-        bubbleParams.x = dp(10); bubbleParams.y = dp(64);
+        bubbleParams.x = dp(10); bubbleParams.y = dp(80);
         bubble.setOnClickListener(v -> open());
         bubble.setOnTouchListener(new View.OnTouchListener() {
             float x, y; int originalX, originalY; boolean moved;
@@ -89,10 +89,10 @@ final class HostChatOverlay {
         banner = new TextView(context); banner.setText(line); banner.setTextColor(0xffffffff); banner.setTextSize(16);
         banner.setMaxLines(2); banner.setPadding(dp(12), dp(8), dp(12), dp(8)); banner.setBackgroundColor(0xff202020);
         banner.setContentDescription("Mensagem no topo: " + line);
-        WindowManager.LayoutParams p = params(-1, -2, Gravity.TOP, false);
+        WindowManager.LayoutParams p = params(Math.max(dp(80), context.getResources().getDisplayMetrics().widthPixels - dp(80)), -2, Gravity.TOP | Gravity.LEFT, false);
         p.flags |= WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE;
         // Allow touches to the film through the transient banner on Android 12 and newer.
-        p.alpha = 0.7f; p.y = dp(8);
+        p.alpha = 0.7f; p.x = dp(8); p.y = dp(8);
         try { windows.addView(banner, p); } catch (Exception e) { banner = null; }
         int sequence = ++bannerSequence;
         main.postDelayed(() -> { if (sequence == bannerSequence) removeBanner(); }, 5000);
@@ -186,7 +186,7 @@ final class HostChatOverlay {
     void onConfigurationChanged() {
         closeComposer(); removeBanner();
         if (bubble != null) {
-            bubbleParams.x = dp(10); bubbleParams.y = dp(64);
+            bubbleParams.x = dp(10); bubbleParams.y = dp(80);
             try { windows.updateViewLayout(bubble, bubbleParams); } catch (Exception ignored) {}
         }
     }

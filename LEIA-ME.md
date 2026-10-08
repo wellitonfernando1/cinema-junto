@@ -4,11 +4,11 @@ Projeto Android para Welliton e um amigo assistirem à tela e ao áudio do celul
 
 ## Estado desta entrega
 
-O APK é gerado pelo GitHub Actions e o servidor está publicado no plano Free do Render em https://cinema-junto-welliton.onrender.com/. A versão 0.6 usa uma senha simples escolhida por quem transmite e vincula cada sala ao primeiro aparelho convidado. Mantém vídeo AVC/H.264 nativo a até 24 quadros por segundo, pequeno buffer e relógio comum para áudio e imagem. O teclado fecha após cinco segundos sem uso e preserva o rascunho. Os dois participantes podem segurar o botão de microfone para falar. A compatibilidade com o YouCine e a fluidez precisam ser confirmadas nos aparelhos reais.
+O APK é gerado pelo GitHub Actions e o servidor está publicado no plano Free do Render em https://cinema-junto-welliton.onrender.com/. A versão 0.7 traz um botão circular vermelho com ícone branco de microfone no canto superior direito para os dois participantes, usa uma senha simples escolhida por quem transmite e vincula cada sala ao primeiro aparelho convidado. Mantém vídeo AVC/H.264 nativo a até 24 quadros por segundo, pequeno buffer e relógio comum para áudio e imagem. O teclado fecha após cinco segundos sem uso e preserva o rascunho. Os dois participantes podem segurar o botão de microfone para falar. A compatibilidade com o YouCine e a fluidez precisam ser confirmadas nos aparelhos reais.
 
 ## Instalar ou gerar novamente o APK sem Android Studio
 
-O APK atualizado desta entrega é `Cinema-Junto-Chat-Final.apk`. No Google Drive o nome é `Cinema Junto Chat Final v0.6.apk`. Cada artefato do GitHub Actions expira após 14 dias; guarde uma cópia do APK. Se a versão anterior já estiver instalada, desinstale-a antes de instalar esta: as versões de teste compiladas em execuções diferentes usam assinaturas de depuração diferentes. A desinstalação apaga os dados locais do aplicativo.
+O APK atualizado desta entrega é `Cinema-Junto-Chat-Final.apk`. No Google Drive o nome é `Cinema Junto Chat Final v0.7.apk`. Cada artefato do GitHub Actions expira após 14 dias; guarde uma cópia do APK. Se a versão anterior já estiver instalada, desinstale-a antes de instalar esta: as versões de teste compiladas em execuções diferentes usam assinaturas de depuração diferentes. A desinstalação apaga os dados locais do aplicativo.
 
 1. Abra o [repositório Cinema Junto](https://github.com/wellitonfernando1/cinema-junto), que já contém o projeto e a pasta `.github`.
 2. No GitHub, abra Actions > Gerar APK > Run workflow. A execução também acontece ao enviar código à branch `main`.
@@ -35,7 +35,7 @@ O servidor pode levar algum tempo para responder após inatividade, conforme as 
 5. Aguarde a mensagem de confirmação da sala.
 6. Toque em Compartilhar senha e envie apenas essa palavra ao amigo. Não há endereço ou código longo para copiar.
 7. Abra o YouCine e dê play no filme. A notificação Cinema Junto mantém a captura ativa.
-8. O botão **Segure para falar** fica sobre o filme. Mantenha o dedo nele para enviar sua voz; solte para encerrar. O som do filme fica silenciado nos dois aparelhos durante a fala, enquanto a imagem continua. Use fones para reduzir eco. Uma fala tem limite de 30 segundos e somente uma pessoa fala por vez.
+8. O botão circular vermelho com ícone de microfone fica no canto superior direito, sobre o filme. Mantenha o dedo nele para enviar sua voz; solte para encerrar. O som do filme fica silenciado nos dois aparelhos durante a fala, enquanto a imagem continua. Use fones para reduzir eco. Uma fala tem limite de 30 segundos e somente uma pessoa fala por vez.
 9. No Android 13 e anteriores, o chat de quem transmite fica escondido, conforme a preferência desta entrega. Quem assiste mantém o próprio chat. Android 14 atualizado e posteriores oferecem chat flutuante; escolha compartilhar **Um app** para evitar enviar chat e teclado na captura. Ao escolher tela inteira, o botão de microfone e outras janelas também podem aparecer no vídeo.
 
 ### Quem assiste
@@ -46,7 +46,7 @@ O servidor pode levar algum tempo para responder após inatividade, conforme as 
 4. Toque em **Tela cheia** para ocupar a tela em paisagem; toque em **Voltar** para sair. Girar o aparelho mantém a conexão ativa. Os controles desaparecem após alguns segundos; toque na imagem para mostrá-los. **Ampliar** preenche a tela recortando as bordas da imagem; **Ajustar** volta a mostrar a imagem inteira.
 5. Toque em **Chat** para escrever com o teclado ou usar os emojis rápidos. O filme continua na parte de cima e o teclado ocupa a parte de baixo. Ao fechar o teclado, ou após cinco segundos sem usar o chat, ele recolhe e a imagem volta a ocupar a tela. O rascunho é preservado. O editor de texto não abre em tela inteira na orientação paisagem. As mensagens aparecem no topo do vídeo por alguns segundos.
 6. Use fones para evitar eco se vocês também estiverem conversando por outro aplicativo.
-7. No topo há **Segure para falar**. Autorize o microfone na primeira vez e segure novamente. Durante a fala de qualquer participante, o filme continua com imagem e seu som fica silenciado. Ao soltar, o som retorna. Não há gravação permanente da voz.
+7. No canto superior direito há uma bolinha vermelha com ícone de microfone. Autorize o microfone na primeira vez e segure novamente. Durante a fala de qualquer participante, o filme continua com imagem e seu som fica silenciado. Ao soltar, o som retorna. Não há gravação permanente da voz.
 
 ### Encerrar
 
