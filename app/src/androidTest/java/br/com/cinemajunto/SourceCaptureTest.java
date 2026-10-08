@@ -14,6 +14,7 @@ import androidx.test.uiautomator.By;
 import androidx.test.uiautomator.UiDevice;
 import androidx.test.uiautomator.UiObject2;
 import java.io.File;
+import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -41,6 +42,7 @@ public class SourceCaptureTest {
     final AtomicReference<Throwable> failure = new AtomicReference<>();
     final AtomicReference<StreamPacket.VideoConfig> format = new AtomicReference<>();
     final AtomicReference<StreamPacket.Packet> lastVoice = new AtomicReference<>();
+    final String viewerDevice = UUID.randomUUID().toString();
     boolean evidenceSaved;
 
     @Rule public final TestWatcher evidence = new TestWatcher() {
@@ -136,7 +138,7 @@ public class SourceCaptureTest {
     void joinViewer(String endpoint, String room) {
         viewer = client.newWebSocket(new Request.Builder().url(endpoint.replaceFirst("^https", "wss") + "relay").build(), new WebSocketListener() {
             @Override public void onOpen(WebSocket socket, Response response) {
-                try { socket.send(new JSONObject().put("room", room).put("role", "viewer").toString()); }
+                try { socket.send(new JSONObject().put("room", room).put("role", "viewer").put("device", viewerDevice).toString()); }
                 catch (Exception error) { failure.compareAndSet(null, error); }
             }
             @Override public void onMessage(WebSocket socket, String text) {
@@ -169,12 +171,21 @@ public class SourceCaptureTest {
             activity.endpoint.setText("https://cinema-junto-welliton.onrender.com/");
             activity.startHost();
         });
+        String password = "teste" + UUID.randomUUID().toString().replace("-", "").substring(0, 16);
+        until("The room password dialog did not open", 3000,
+            () -> device.hasObject(By.text("Criar senha da sala")));
+        UiObject2 passwordInput = device.findObject(By.desc("Senha que você vai criar"));
+        assertNotNull("The host must be able to choose a short room password", passwordInput);
+        passwordInput.setText(password);
+        assertTrue("The create-room button was missing", clickText("Criar sala"));
         approveScreenCapture();
         until("MediaProjection foreground capture did not connect", 10000, () -> CaptureService.active);
         String[] invitation = new String[2];
         main(() -> {
             invitation[0] = activity.pendingEndpoint; invitation[1] = activity.pendingRoom;
-            assertTrue(activity.invitation.getText().toString().contains(invitation[1]));
+            assertEquals("The shared invitation must be just the chosen password", password,
+                activity.invitation.getText().toString());
+            assertEquals("The relay must use the internal room hash", RoomPassword.room(password), invitation[1]);
         });
         joinViewer(invitation[0], invitation[1]);
         until("The isolated test viewer did not join", 7000, joined::get);

@@ -1,9 +1,38 @@
 import http from 'node:http';
 import { WebSocketServer, WebSocket } from 'ws';
 import { pathToFileURL } from 'node:url';
+import { isIP } from 'node:net';
 
-export function createRelay({ ttlMs = 2 * 60 * 60 * 1000, mediaBufferLimitBytes = 256 * 1024, talkTtlMs = 30000 } = {}) {
+export function createRelay({ ttlMs = 2 * 60 * 60 * 1000, mediaBufferLimitBytes = 256 * 1024, talkTtlMs = 30000,
+  joinAttemptLimit = 12, joinWindowMs = 60000, joinClock = Date.now,
+  trustedProxyHops = process.env.RENDER === 'true' ? 1 : 0 } = {}) {
   const rooms = new Map();
+  const failedJoins = new Map();
+  const validDevice = value => typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+  const pruneJoinAttempts = now => {
+    for (const [ip, entry] of failedJoins) if (now >= entry.until) failedJoins.delete(ip);
+  };
+  const joinBlocked = ip => {
+    const now = joinClock(); pruneJoinAttempts(now);
+    const entry = failedJoins.get(ip);
+    return entry ? entry.count >= joinAttemptLimit : failedJoins.size >= 1024;
+  };
+  const countFailedJoin = ip => {
+    const now = joinClock(); const entry = failedJoins.get(ip);
+    if (entry && now < entry.until) entry.count++;
+    else if (failedJoins.size < 1024) failedJoins.set(ip, { count: 1, until: now + joinWindowMs });
+  };
+  const clientIp = req => {
+    const direct = req.socket.remoteAddress || 'unknown';
+    const header = req.headers['x-forwarded-for'];
+    if (trustedProxyHops > 0 && typeof header === 'string' && header.length <= 2048) {
+      const chain = header.split(',').map(ip => ip.trim());
+      const candidate = chain[chain.length - trustedProxyHops];
+      // Only the configured nearest proxy hops are trusted, never a client-supplied first entry.
+      if (candidate && isIP(candidate)) return candidate;
+    }
+    return direct;
+  };
   const send = (target, data, binary = false) => {
     if (target?.readyState !== WebSocket.OPEN || target.bufferedAmount >= 512 * 1024) return false;
     target.send(data, { binary });
@@ -103,36 +132,51 @@ export function createRelay({ ttlMs = 2 * 60 * 60 * 1000, mediaBufferLimitBytes 
   const wss = new WebSocketServer({ noServer: true, maxPayload: 512 * 1024, perMessageDeflate: false });
   server.on('upgrade', (req, socket, head) => {
     if (req.url !== '/relay' || wss.clients.size >= 100) { socket.destroy(); return; }
-    wss.handleUpgrade(req, socket, head, ws => wss.emit('connection', ws));
+    wss.handleUpgrade(req, socket, head, ws => wss.emit('connection', ws, req));
   });
-  wss.on('connection', ws => {
+  wss.on('connection', (ws, req) => {
     let joined = false, role, key, lastChatAt = 0, lastTalkStartAt = 0;
+    const ip = clientIp(req);
+    const rejectJoin = (code, reason) => { countFailedJoin(ip); ws.close(code, reason); };
     ws.alive = true;
     ws.on('pong', () => { ws.alive = true; });
     const deadline = setTimeout(() => ws.close(1008, 'Identifique a sala'), 10000);
     deadline.unref();
     ws.on('message', (data, binary) => {
+      if (ws.readyState !== WebSocket.OPEN) return;
       if (!joined) {
-        if (binary || data.length > 2048) { ws.close(1008, 'Entrada inválida'); return; }
+        if (joinBlocked(ip)) { ws.close(1013, 'Muitas tentativas. Aguarde um minuto e tente novamente.'); return; }
+        if (binary || data.length > 2048) { rejectJoin(1008, 'Entrada inválida'); return; }
         let msg;
-        try { msg = JSON.parse(data.toString()); } catch { ws.close(1008, 'Entrada inválida'); return; }
-        if (!msg || typeof msg !== 'object' || Array.isArray(msg) || !/^[a-f0-9]{64}$/.test(msg.room) || !['host','viewer'].includes(msg.role)) { ws.close(1008, 'Convite inválido'); return; }
+        try { msg = JSON.parse(data.toString()); } catch { rejectJoin(1008, 'Entrada inválida'); return; }
+        if (!msg || typeof msg !== 'object' || Array.isArray(msg) || !/^[a-f0-9]{64}$/.test(msg.room) || !['host','viewer'].includes(msg.role)) { rejectJoin(1008, 'Convite inválido'); return; }
+        if (Object.hasOwn(msg, 'device') && !validDevice(msg.device)) { rejectJoin(1008, 'Identificação do aparelho inválida.'); return; }
+        const device = msg.device?.toLowerCase();
         role = msg.role; key = msg.room;
         let room = rooms.get(key);
         if (role === 'host' && !room) {
-          if (rooms.size >= 50) { ws.close(1013, 'Servidor ocupado'); return; }
+          if (rooms.size >= 50) { rejectJoin(1013, 'Servidor ocupado'); return; }
           room = { host: null, viewer: null, timer: null, config: null, waitingKeyframe: true,
             needsConfig: true, resetPending: false, resumeTimestamp: 0n, lastKeyframeRequestAt: -Infinity,
-            talker: null, talkTimer: null, voiceTokens: 64000, voiceUpdatedAt: 0 };
+            talker: null, talkTimer: null, voiceTokens: 64000, voiceUpdatedAt: 0,
+            deviceMode: Boolean(device), hostDevice: device || null, pinnedViewerDevice: null };
           room.timer = setTimeout(() => {
             endTalk(room);
             room.host?.close(1000, 'Sala expirada'); room.viewer?.close(1000, 'Sala expirada'); rooms.delete(key);
           }, ttlMs);
           room.timer.unref(); rooms.set(key, room);
         }
-        if (!room || room[role]) { ws.close(1008, room ? 'Sala ocupada' : 'Sala não está transmitindo'); return; }
+        if (!room) { rejectJoin(1008, 'Senha não encontrada. Confira a palavra com quem transmite.'); return; }
+        if (role === 'host' && room.host) { rejectJoin(1008, 'Senha já está em uso. Escolha outra.'); return; }
+        if (role === 'viewer' && room.deviceMode) {
+          if (!device) { rejectJoin(1008, 'Atualize o aplicativo para entrar nesta sala.'); return; }
+          if (device === room.hostDevice) { rejectJoin(1008, 'Use outro aparelho para assistir nesta sala.'); return; }
+          if (room.pinnedViewerDevice && device !== room.pinnedViewerDevice) { rejectJoin(1008, 'Esta sala já está ligada a outro aparelho.'); return; }
+        }
+        if (room[role]) { rejectJoin(1008, 'Sala ocupada'); return; }
+        if (role === 'viewer' && room.deviceMode && !room.pinnedViewerDevice) room.pinnedViewerDevice = device;
         joined = true; clearTimeout(deadline); room[role] = ws;
-        send(ws, JSON.stringify({ status: role === 'host' ? 'Pronto. Envie o convite ao seu amigo.' : 'Conectado. Aguardando imagem e som.' }));
+        send(ws, JSON.stringify({ joined: true, status: role === 'host' ? 'Sala criada. Compartilhe a senha com seu amigo.' : 'Conectado. Aguardando imagem e som.' }));
         if (room.viewer) {
           room.waitingKeyframe = true; room.needsConfig = true; room.resetPending = false; room.resumeTimestamp = 0n;
           send(room.host, JSON.stringify({ status: 'Seu amigo entrou na sala.' }));
@@ -188,6 +232,7 @@ export function createRelay({ ttlMs = 2 * 60 * 60 * 1000, mediaBufferLimitBytes 
     });
   });
   const heartbeat = setInterval(() => {
+    pruneJoinAttempts(joinClock());
     for (const ws of wss.clients) { if (!ws.alive) ws.terminate(); else { ws.alive = false; ws.ping(); } }
   }, 30000);
   heartbeat.unref();

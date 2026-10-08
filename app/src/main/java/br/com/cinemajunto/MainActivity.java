@@ -20,7 +20,6 @@ import android.view.*;
 import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputMethodManager;
 import android.widget.*;
-import java.security.SecureRandom;
 import java.util.ArrayDeque;
 import java.util.concurrent.*;
 import okhttp3.*;
@@ -39,7 +38,8 @@ public class MainActivity extends Activity {
     final Handler ui = new Handler(Looper.getMainLooper());
     boolean fullscreen, unreadChat, imeVisible, keyboardSeen, chatOpen, destroyed;
     int bannerSequence, playbackGeneration;
-    String pendingEndpoint, pendingRoom;
+    String pendingEndpoint, pendingRoom, pendingPassword;
+    boolean hostFlowPending;
     final OkHttpClient client = new OkHttpClient.Builder().pingInterval(20, TimeUnit.SECONDS).build();
     WebSocket socket;
     volatile boolean watching;
@@ -59,6 +59,10 @@ public class MainActivity extends Activity {
 
     @Override public void onCreate(Bundle saved) {
         super.onCreate(saved);
+        if (saved != null) {
+            pendingEndpoint = saved.getString("pendingEndpoint"); pendingRoom = saved.getString("pendingRoom");
+            pendingPassword = saved.getString("pendingPassword"); hostFlowPending = saved.getBoolean("hostFlowPending");
+        }
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
         root = new FrameLayout(this); root.setBackgroundColor(0xff000000);
@@ -69,19 +73,21 @@ public class MainActivity extends Activity {
         controls.setPadding(dp(16), dp(12), dp(16), dp(12)); controls.setBackgroundColor(0xfffafafa);
         setupScroll.addView(controls); mainLayout.addView(setupScroll, new LinearLayout.LayoutParams(-1, 0, 1));
         TextView title = new TextView(this); title.setTextColor(Color.BLACK); title.setText("Cinema Junto Chat Final"); title.setTextSize(24); controls.addView(title);
-        TextView subtitle = new TextView(this); subtitle.setTextColor(Color.BLACK); subtitle.setText("Filme, chat e microfone com seu amigo · Versão 0.5"); controls.addView(subtitle);
+        TextView subtitle = new TextView(this); subtitle.setTextColor(Color.BLACK); subtitle.setText("Filme, chat, microfone e senha simples · Versão 0.6"); controls.addView(subtitle);
         endpoint = new EditText(this); endpoint.setSingleLine(true); endpoint.setHint("Endereço do servidor");
         readableInput(endpoint);
         endpoint.setText(getPreferences(0).getString("endpoint", "https://cinema-junto-welliton.onrender.com/")); controls.addView(endpoint);
-        invitation = new EditText(this); invitation.setSingleLine(true); invitation.setHint("Cole aqui o convite para assistir");
+        invitation = new EditText(this); invitation.setSingleLine(true); invitation.setHint("Digite a senha criada por quem transmite");
+        invitation.setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD | android.text.InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
+        invitation.setContentDescription("Senha da sala");
         readableInput(invitation);
-        if (CaptureService.active) invitation.setText(getPreferences(0).getString("hostInvite", "")); controls.addView(invitation);
+        if (CaptureService.active || CaptureService.starting) invitation.setText(getPreferences(0).getString("hostInvite", "")); controls.addView(invitation);
         button(controls, "Transmitir minha tela e o som", () -> startHost());
-        button(controls, "Compartilhar convite", () -> share());
-        button(controls, "Assistir ao meu amigo", () -> startViewer());
+        button(controls, "Compartilhar senha", () -> share());
+        button(controls, "Assistir com a senha", () -> startViewer());
         if (CaptureService.isHostChatAvailable()) button(controls, "Chat de quem transmite", () -> openHostChat());
         button(controls, "Encerrar", () -> endSession());
-        status = new TextView(this); status.setTextColor(Color.BLACK); status.setText("Inicie uma transmissão ou cole o convite do seu amigo."); controls.addView(status);
+        status = new TextView(this); status.setTextColor(Color.BLACK); status.setText("Quem transmite cria uma senha. O amigo digita a mesma senha para entrar. Só dois aparelhos por sala."); controls.addView(status);
         TextView tip = new TextView(this);
         tip.setTextColor(Color.BLACK);
         tip.setText(CaptureService.isHostChatAvailable()
@@ -319,35 +325,65 @@ public class MainActivity extends Activity {
         return u.newBuilder().encodedPath("/").query(null).fragment(null).build().toString();
     }
     void startHost() {
+        if (CaptureService.active || CaptureService.starting || hostFlowPending) {
+            show("A transmissão já está iniciando ou ativa. Encerre antes de criar outra sala."); return;
+        }
+        LinearLayout box = new LinearLayout(this); box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(dp(20), dp(8), dp(20), dp(8));
+        TextView explanation = new TextView(this); explanation.setTextColor(Color.BLACK);
+        explanation.setText("Escolha uma palavra de 4 a 24 letras ou números, como pipoca42. Envie só essa senha ao seu amigo. Cada sala aceita você e um convidado.");
+        box.addView(explanation);
+        EditText word = new EditText(this); word.setSingleLine(true); readableInput(word);
+        word.setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD | android.text.InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
+        word.setHint("Sua senha, por exemplo pipoca42"); word.setContentDescription("Senha que você vai criar");
+        box.addView(word);
+        AlertDialog dialog = new AlertDialog.Builder(this).setTitle("Criar senha da sala").setView(box)
+            .setPositiveButton("Criar sala", null).setNegativeButton("Cancelar", null).create();
+        dialog.setOnShowListener(ignored -> dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(button -> {
+            try {
+                String value = RoomPassword.normalize(word.getText().toString());
+                validEndpoint(endpoint.getText().toString()); dialog.dismiss(); startHostWithPassword(value);
+            } catch (IllegalArgumentException error) { word.setError(error.getMessage()); }
+        }));
+        dialog.show();
+    }
+    void startHostWithPassword(String password) {
         try {
-            if (CaptureService.active) { show("Já está transmitindo. Encerre antes de criar outra sala."); return; }
+            if (CaptureService.active || CaptureService.starting || hostFlowPending) { show("A transmissão já está iniciando ou ativa. Encerre antes de criar outra sala."); return; }
+            pendingPassword = RoomPassword.normalize(password); pendingRoom = RoomPassword.room(pendingPassword);
             stopViewer(); pendingEndpoint = validEndpoint(endpoint.getText().toString());
-            byte[] random = new byte[32]; new SecureRandom().nextBytes(random);
-            StringBuilder token = new StringBuilder(); for (byte b : random) token.append(String.format("%02x", b & 255)); pendingRoom = token.toString();
+            hostFlowPending = true;
             getPreferences(0).edit().putString("endpoint", pendingEndpoint).apply();
             if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
                 requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO}, 1); return;
             }
             requestHostOverlay();
-        } catch (Exception e) { show(e.getMessage()); }
+        } catch (Exception e) { hostFlowPending = false; show(e.getMessage()); }
     }
     void requestHostOverlay() {
         if (Settings.canDrawOverlays(this)) { requestScreen(); return; }
+        hostFlowPending = false;
         new AlertDialog.Builder(this).setTitle("Microfone sobre o filme")
             .setMessage("Ative ‘Aparecer sobre outros apps’ para usar o botão ‘Segure para falar’ enquanto transmite. No Android 13 o chat continua escondido.")
             .setPositiveButton("Permitir botão flutuante", (dialog, which) -> {
-                try { startActivityForResult(new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:" + getPackageName())), 4); }
-                catch (Exception e) { show("Abra as configurações do Android e permita aparecer sobre outros apps."); }
-            }).setNegativeButton("Cancelar", null).show();
+                try { hostFlowPending = true; startActivityForResult(new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:" + getPackageName())), 4); }
+                catch (Exception e) { hostFlowPending = false; show("Abra as configurações do Android e permita aparecer sobre outros apps."); }
+            }).setNegativeButton("Cancelar", (dialog, which) -> hostFlowPending = false)
+            .setOnCancelListener(dialog -> hostFlowPending = false).show();
     }
     void requestScreen() {
+        hostFlowPending = false;
         MediaProjectionManager pm = (MediaProjectionManager)getSystemService(MEDIA_PROJECTION_SERVICE);
         String message = CaptureService.isHostChatAvailable()
             ? "No próximo aviso, escolha ‘Um app’ e selecione o app do filme. Assim o chat flutuante e o teclado ficam só no seu aparelho. A opção ‘Tela inteira’ também os transmite."
             : "O chat de quem transmite ficará escondido para não aparecer sobre o filme. Quem assiste mantém o próprio chat. Este Android compartilha a tela inteira: abra o filme e evite exibir outras informações pessoais durante a transmissão.";
         new AlertDialog.Builder(this).setTitle("Compartilhar só o filme").setMessage(message)
-            .setPositiveButton("Continuar", (dialog, which) -> startActivityForResult(pm.createScreenCaptureIntent(), 2))
-            .setNegativeButton("Cancelar", null).show();
+            .setPositiveButton("Continuar", (dialog, which) -> {
+                try { hostFlowPending = true; startActivityForResult(pm.createScreenCaptureIntent(), 2); }
+                catch (Exception error) { hostFlowPending = false; show("Não foi possível pedir a captura. Tente novamente."); }
+            })
+            .setNegativeButton("Cancelar", (dialog, which) -> hostFlowPending = false)
+            .setOnCancelListener(dialog -> hostFlowPending = false).show();
     }
     @Override public void onRequestPermissionsResult(int code, String[] permissions, int[] results) {
         super.onRequestPermissionsResult(code, permissions, results);
@@ -355,42 +391,53 @@ public class MainActivity extends Activity {
             Toast.makeText(this, results.length > 0 && results[0] == PackageManager.PERMISSION_GRANTED
                 ? "Microfone liberado. Segure o botão para falar." : "Permita o microfone para falar com seu amigo.", Toast.LENGTH_LONG).show();
         }
-        if (code == 1) { if (results.length > 0 && results[0] == PackageManager.PERMISSION_GRANTED) requestHostOverlay(); else show("Sem a permissão de áudio não é possível transmitir o som."); }
+        if (code == 1) { if (results.length > 0 && results[0] == PackageManager.PERMISSION_GRANTED) requestHostOverlay(); else { hostFlowPending = false; show("Sem a permissão de áudio não é possível transmitir o som."); } }
     }
     @Override protected void onActivityResult(int code, int result, Intent data) {
         super.onActivityResult(code, result, data);
         if (code == 4) {
             if (Settings.canDrawOverlays(this)) requestScreen();
-            else show("Permita aparecer sobre outros apps para usar o microfone ao transmitir.");
+            else { hostFlowPending = false; show("Permita aparecer sobre outros apps para usar o microfone ao transmitir."); }
             return;
         }
         if (code == 5) { if (Settings.canDrawOverlays(this) && CaptureService.active) openHostChat(); return; }
         if (code != 2) return;
+        hostFlowPending = false;
         if (result != RESULT_OK || data == null) { show("Compartilhamento cancelado."); return; }
+        if (pendingEndpoint == null || pendingRoom == null || pendingPassword == null) { show("Crie a senha novamente para iniciar a transmissão."); return; }
         Intent service = new Intent(this, CaptureService.class).putExtra("result", result).putExtra("data", data).putExtra("endpoint", pendingEndpoint).putExtra("room", pendingRoom);
-        startForegroundService(service);
-        String invite = pendingEndpoint + "#" + pendingRoom;
-        invitation.setText(invite); getPreferences(0).edit().putString("hostInvite", invite).apply();
-        show("Conectando… aguarde a confirmação antes de enviar o convite.");
+        CaptureService.starting = true;
+        try { startForegroundService(service); }
+        catch (Exception error) { CaptureService.starting = false; show("Não foi possível iniciar a transmissão. Tente novamente."); return; }
+        invitation.setText(pendingPassword); getPreferences(0).edit().putString("hostInvite", pendingPassword).apply();
+        show("Conectando… aguarde a confirmação antes de enviar a senha.");
     }
     void share() {
-        String value = invitation.getText().toString().trim();
+        String value = getPreferences(0).getString("hostInvite", "");
         if (!CaptureService.active || value.isEmpty()) { show("Inicie a transmissão e aguarde a conexão primeiro."); return; }
         Intent send = new Intent(Intent.ACTION_SEND); send.setType("text/plain"); send.putExtra(Intent.EXTRA_TEXT, value);
-        startActivity(Intent.createChooser(send, "Envie ao seu amigo. Ele deve colar no Cinema Junto."));
+        startActivity(Intent.createChooser(send, "Envie a senha ao seu amigo para digitar no Cinema Junto."));
     }
     void startViewer() {
         try {
             if (CaptureService.active) { show("Encerre sua transmissão antes de assistir."); return; }
-            Uri uri = Uri.parse(invitation.getText().toString().trim());
-            String base = validEndpoint(uri.toString()); String room = uri.getFragment();
-            if (room == null || !room.matches("[a-f0-9]{64}")) throw new IllegalArgumentException("Cole o convite completo enviado pelo seu amigo.");
+            String value = invitation.getText().toString().trim();
+            String base, room;
+            if (value.startsWith("https://")) {
+                // Old full invitations remain usable for existing sessions.
+                Uri uri = Uri.parse(value); base = validEndpoint(value); room = uri.getFragment();
+                if (room == null || !room.matches("[a-f0-9]{64}")) throw new IllegalArgumentException("Digite a senha criada por quem transmite.");
+            } else {
+                value = RoomPassword.normalize(value); base = validEndpoint(endpoint.getText().toString());
+                room = RoomPassword.room(value); invitation.setText(value);
+            }
             stopViewer(); endpoint.setText(base); watching = true; updateLayout();
+            getPreferences(0).edit().putString("endpoint", base).apply();
             startPlayback(); startVoice(); show("Conectando ao seu amigo…");
             String url = base.replaceFirst("^https", "wss") + "relay";
             socket = client.newWebSocket(new Request.Builder().url(url).build(), new WebSocketListener() {
                 @Override public void onOpen(WebSocket ws, Response response) {
-                    try { ws.send(new JSONObject().put("role", "viewer").put("room", room).toString()); } catch (Exception ignored) {}
+                    try { ws.send(new JSONObject().put("role", "viewer").put("room", room).put("device", RoomPassword.device(MainActivity.this)).toString()); } catch (Exception ignored) {}
                 }
                 @Override public void onMessage(WebSocket ws, String text) {
                     if (!watching || socket != ws) return;
@@ -411,7 +458,7 @@ public class MainActivity extends Activity {
                     PlaybackEngine engine = playback;
                     if (engine != null) engine.offer(message.toByteArray());
                 }
-                @Override public void onFailure(WebSocket ws, Throwable t, Response response) { runOnUiThread(() -> { if (socket == ws) { stopViewer(); show("Conexão falhou. Confira o convite e tente novamente."); } }); }
+                @Override public void onFailure(WebSocket ws, Throwable t, Response response) { runOnUiThread(() -> { if (socket == ws) { stopViewer(); show("Conexão falhou. Confira a senha e tente novamente."); } }); }
                 @Override public void onClosing(WebSocket ws, int code, String reason) { ws.close(code, reason); }
                 @Override public void onClosed(WebSocket ws, int code, String reason) { runOnUiThread(() -> { if (socket == ws) { stopViewer(); show(reason); } }); }
             });
@@ -441,6 +488,11 @@ public class MainActivity extends Activity {
         if (screen != null) screen.clearFrame();
         if (chatOpen) closeChat();
         if (fullscreen) exitFullscreen(); else if (controls != null) updateLayout();
+    }
+    @Override protected void onSaveInstanceState(Bundle state) {
+        state.putString("pendingEndpoint", pendingEndpoint); state.putString("pendingRoom", pendingRoom);
+        state.putString("pendingPassword", pendingPassword); state.putBoolean("hostFlowPending", hostFlowPending);
+        super.onSaveInstanceState(state);
     }
     @Override protected void onDestroy() { destroyed = true; stopViewer(); ui.removeCallbacksAndMessages(null); unregisterReceiver(messages); client.dispatcher().executorService().shutdown(); super.onDestroy(); }
     @Override protected void onPause() { if (voice != null) voice.release(); super.onPause(); }

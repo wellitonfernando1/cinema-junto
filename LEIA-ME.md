@@ -4,11 +4,11 @@ Projeto Android para Welliton e um amigo assistirem à tela e ao áudio do celul
 
 ## Estado desta entrega
 
-O APK é gerado pelo GitHub Actions e o servidor está publicado no plano Free do Render em https://cinema-junto-welliton.onrender.com/. A versão 0.5 usa vídeo AVC/H.264 nativo a até 24 quadros por segundo, pequeno buffer e relógio comum para áudio e imagem. O teclado fecha após cinco segundos sem uso e preserva o rascunho. Os dois participantes podem segurar o botão de microfone para falar. A compatibilidade com o YouCine e a fluidez precisam ser confirmadas nos aparelhos reais.
+O APK é gerado pelo GitHub Actions e o servidor está publicado no plano Free do Render em https://cinema-junto-welliton.onrender.com/. A versão 0.6 usa uma senha simples escolhida por quem transmite e vincula cada sala ao primeiro aparelho convidado. Mantém vídeo AVC/H.264 nativo a até 24 quadros por segundo, pequeno buffer e relógio comum para áudio e imagem. O teclado fecha após cinco segundos sem uso e preserva o rascunho. Os dois participantes podem segurar o botão de microfone para falar. A compatibilidade com o YouCine e a fluidez precisam ser confirmadas nos aparelhos reais.
 
 ## Instalar ou gerar novamente o APK sem Android Studio
 
-O APK atualizado desta entrega é `Cinema-Junto-Chat-Final.apk`. No Google Drive o nome é `Cinema Junto Chat Final.apk`. Cada artefato do GitHub Actions expira após 14 dias; guarde uma cópia do APK. Se a versão anterior já estiver instalada, desinstale-a antes de instalar esta: as versões de teste compiladas em execuções diferentes usam assinaturas de depuração diferentes. A desinstalação apaga os dados locais do aplicativo.
+O APK atualizado desta entrega é `Cinema-Junto-Chat-Final.apk`. No Google Drive o nome é `Cinema Junto Chat Final v0.6.apk`. Cada artefato do GitHub Actions expira após 14 dias; guarde uma cópia do APK. Se a versão anterior já estiver instalada, desinstale-a antes de instalar esta: as versões de teste compiladas em execuções diferentes usam assinaturas de depuração diferentes. A desinstalação apaga os dados locais do aplicativo.
 
 1. Abra o [repositório Cinema Junto](https://github.com/wellitonfernando1/cinema-junto), que já contém o projeto e a pasta `.github`.
 2. No GitHub, abra Actions > Gerar APK > Run workflow. A execução também acontece ao enviar código à branch `main`.
@@ -29,11 +29,11 @@ O servidor pode levar algum tempo para responder após inatividade, conforme as 
 ### Quem transmite
 
 1. Confirme que o endereço HTTPS do servidor já está preenchido.
-2. Toque em Transmitir minha tela e o som.
+2. Toque em Transmitir minha tela e o som. Escolha uma palavra de 4 a 24 letras ou números, por exemplo `pipoca42`, e toque em Criar sala. Letras maiúsculas e acentos são normalizados para facilitar a digitação. Se a senha já estiver sendo usada em outra sala, o aplicativo pedirá outra.
 3. Autorize o áudio e ative **Aparecer sobre outros apps** quando solicitado. Volte ao Cinema Junto para autorizar a captura de tela. A permissão de áudio permite copiar o som interno e, somente enquanto você segura o botão para falar, enviar a voz do microfone.
 4. Em celulares que oferecem seleção de aplicativo, selecione o YouCine. Se selecionar a tela inteira, o amigo verá tudo que aparecer nela.
 5. Aguarde a mensagem de confirmação da sala.
-6. Toque em Compartilhar convite e envie-o ao amigo.
+6. Toque em Compartilhar senha e envie apenas essa palavra ao amigo. Não há endereço ou código longo para copiar.
 7. Abra o YouCine e dê play no filme. A notificação Cinema Junto mantém a captura ativa.
 8. O botão **Segure para falar** fica sobre o filme. Mantenha o dedo nele para enviar sua voz; solte para encerrar. O som do filme fica silenciado nos dois aparelhos durante a fala, enquanto a imagem continua. Use fones para reduzir eco. Uma fala tem limite de 30 segundos e somente uma pessoa fala por vez.
 9. No Android 13 e anteriores, o chat de quem transmite fica escondido, conforme a preferência desta entrega. Quem assiste mantém o próprio chat. Android 14 atualizado e posteriores oferecem chat flutuante; escolha compartilhar **Um app** para evitar enviar chat e teclado na captura. Ao escolher tela inteira, o botão de microfone e outras janelas também podem aparecer no vídeo.
@@ -41,8 +41,8 @@ O servidor pode levar algum tempo para responder após inatividade, conforme as 
 ### Quem assiste
 
 1. Abra o Cinema Junto.
-2. Cole o convite completo no campo indicado. O convite é para colar no aplicativo, não para reproduzir em um navegador.
-3. Toque em Assistir ao meu amigo. Aguarde o pequeno carregamento inicial de aproximadamente 450 ms de áudio, além do tempo de conexão. O buffer reduz variações de chegada da rede. Se faltarem dados, áudio e vídeo aguardam juntos.
+2. Digite a senha criada por quem transmite. Os dois aparelhos devem usar o endereço do servidor já preenchido. Convites completos de sessões antigas também continuam aceitos.
+3. Toque em Assistir com a senha. A sala fica ligada a este aparelho convidado até quem transmite encerrar. O mesmo aparelho pode sair e entrar novamente; outro convidado é recusado mesmo após a saída do primeiro. Se apagar os dados do aplicativo ou reinstalá-lo durante a sala, quem transmite precisa encerrar e criar uma nova sala. Aguarde o pequeno carregamento inicial de aproximadamente 450 ms de áudio, além do tempo de conexão. O buffer reduz variações de chegada da rede. Se faltarem dados, áudio e vídeo aguardam juntos.
 4. Toque em **Tela cheia** para ocupar a tela em paisagem; toque em **Voltar** para sair. Girar o aparelho mantém a conexão ativa. Os controles desaparecem após alguns segundos; toque na imagem para mostrá-los. **Ampliar** preenche a tela recortando as bordas da imagem; **Ajustar** volta a mostrar a imagem inteira.
 5. Toque em **Chat** para escrever com o teclado ou usar os emojis rápidos. O filme continua na parte de cima e o teclado ocupa a parte de baixo. Ao fechar o teclado, ou após cinco segundos sem usar o chat, ele recolhe e a imagem volta a ocupar a tela. O rascunho é preservado. O editor de texto não abre em tela inteira na orientação paisagem. As mensagens aparecem no topo do vídeo por alguns segundos.
 6. Use fones para evitar eco se vocês também estiverem conversando por outro aplicativo.
@@ -69,11 +69,13 @@ Quem transmite pode tocar em Encerrar na notificação ou dentro do aplicativo. 
 
 ## Privacidade
 
-Cada convite possui uma chave aleatória de 256 bits, que funciona como senha de acesso. Não publique esse convite. O servidor usa HTTPS/WSS quando publicado no Render e admite apenas um convidado, mas não há criptografia de ponta a ponta: o operador da hospedagem tem acesso ao trânsito dos dados. O código não salva filme, áudio, convite ou conteúdo da tela em disco. O compartilhamento do convite pelo seu mensageiro segue as condições desse mensageiro.
+A senha é escolhida por quem transmite. Compartilhe somente com seu amigo; uma palavra muito comum pode ser adivinhada. Internamente o aplicativo envia uma chave derivada dessa palavra por HTTPS/WSS, e o servidor limita tentativas de entrada. O primeiro convidado fica vinculado por um identificador aleatório persistido nesta instalação; isso limita a sala a um transmissor e um convidado, mas não é uma comprovação física do aparelho. Encerrar a transmissão libera uma nova associação ao recriar a sala.
+
+Não há criptografia de ponta a ponta: o operador da hospedagem tem acesso ao trânsito dos dados. O servidor não salva filme, áudio, senha ou conteúdo da tela em disco. A senha criada fica nas preferências do aplicativo para permitir compartilhá-la enquanto a sala está ativa. O compartilhamento pelo seu mensageiro segue as condições desse mensageiro.
 
 ## Validação
 
-Servidor: execute `npm ci` e `npm test` dentro de `server`. Os testes verificam isolamento entre salas, AVC/PCM com timestamps, recuperação após congestionamento, configuração para ingresso tardio, limites de participantes e microfone nos dois sentidos, com um falante por vez, limite de tempo e encerramento da voz ao sair.
+Servidor: execute `npm ci` e `npm test` dentro de `server`. Os testes verificam isolamento entre salas, AVC/PCM com timestamps, recuperação após congestionamento, configuração para ingresso tardio, limites de participantes e microfone nos dois sentidos, com um falante por vez, limite de tempo e encerramento da voz ao sair. Também verificam senha ocupada/inexistente, vínculo do convidado, reconexão do mesmo aparelho, recusa de terceiro aparelho, compatibilidade com salas antigas e limitação de tentativas.
 
 Android: o fluxo GitHub Actions instala Java 17, Gradle 8.13 e Android SDK 35, compila o APK e os testes de instrumentação e executa os mesmos APKs em emuladores API 29 e 35. Os testes incluem AVC codificado e decodificado de verdade, buffer, relógio do áudio, falta de dados, recuperação, imagem em tela cheia e muting durante a voz. Também verificam contraste do convite, teclado após cinco segundos, preservação do rascunho e captura do microfone nos dois papéis somente enquanto o botão está pressionado e a sala autorizou a fala. Os testes de interface isolam o chat flutuante mesmo nos Androids em que ele fica desativado no produto. Depois disso, teste nos dois aparelhos: permissões, convite, captura do YouCine, som interno, voz, fones/alto-falante, atraso, giro e encerramento. Emuladores não garantem o comportamento do fabricante ou do YouCine.
 

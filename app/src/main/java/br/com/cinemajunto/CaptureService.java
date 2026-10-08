@@ -24,7 +24,7 @@ import okio.ByteString;
 import org.json.JSONObject;
 
 public class CaptureService extends Service {
-    public static volatile boolean active;
+    public static volatile boolean active, starting;
     public static boolean isHostChatAvailable() { return Build.VERSION.SDK_INT >= 34; }
     volatile boolean running, connected;
     volatile WebSocket socket;
@@ -137,6 +137,7 @@ public class CaptureService extends Service {
             return START_NOT_STICKY;
         }
         if (running) return START_NOT_STICKY;
+        starting = true;
         try {
             NotificationManager nm = getSystemService(NotificationManager.class);
             nm.createNotificationChannel(new NotificationChannel("transmissao", "Compartilhamento de tela", NotificationManager.IMPORTANCE_LOW));
@@ -177,7 +178,7 @@ public class CaptureService extends Service {
             client = new OkHttpClient.Builder().pingInterval(20, TimeUnit.SECONDS).build();
             socket = client.newWebSocket(new Request.Builder().url(url).build(), new WebSocketListener() {
                 @Override public void onOpen(WebSocket ws, Response response) {
-                    try { ws.send(new JSONObject().put("room", room).put("role", "host").toString()); } catch (Exception ignored) {}
+                    try { ws.send(new JSONObject().put("room", room).put("role", "host").put("device", RoomPassword.device(CaptureService.this)).toString()); } catch (Exception ignored) {}
                 }
                 @Override public void onMessage(WebSocket ws, String text) {
                     if (!running || socket != ws) return;
@@ -188,7 +189,10 @@ public class CaptureService extends Service {
                         else if ("request-keyframe".equals(msg.optString("type"))) {
                             imageHandler.post(() -> { if (running) { waitingForKeyFrame = true; configurationPending = true; requestSyncFrame(); } });
                         }
-                        else if (msg.has("status")) { connected = true; active = true; status(msg.optString("status")); }
+                        else if (msg.has("status")) {
+                            if (msg.optBoolean("joined")) { connected = true; active = true; starting = false; }
+                            status(msg.optString("status"));
+                        }
                     } catch (Exception ignored) {}
                 }
                 @Override public void onMessage(WebSocket ws, ByteString packet) {
@@ -359,7 +363,7 @@ public class CaptureService extends Service {
         }, "CinemaSom"); audio.start();
     }
     @Override public void onDestroy() {
-        running = false; connected = false; active = false;
+        running = false; connected = false; active = false; starting = false;
         if (displayManager != null) displayManager.unregisterDisplayListener(rotationListener);
         main.removeCallbacksAndMessages(null);
         VoiceTalk talk = voice; voice = null; if (talk != null) talk.close();

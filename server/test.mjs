@@ -37,11 +37,25 @@ async function fixture(t, options) {
   t.after(() => relay.close());
   return { url: `ws://127.0.0.1:${relay.server.address().port}/relay`, relay };
 }
-async function join(url, role, room) {
-  const ws = new WebSocket(url); const incoming = inbox(ws); await once(ws, 'open');
-  ws.send(JSON.stringify({ role, room }));
-  await incoming.next(entry => typeof entry.json?.status === 'string'); return ws;
+async function join(url, role, room, device, options = {}) {
+  const ws = new WebSocket(url, options); const incoming = inbox(ws); await once(ws, 'open');
+  ws.send(JSON.stringify({ role, room, ...(device === undefined ? {} : { device }) }));
+  const ack = await incoming.next(entry => typeof entry.json?.status === 'string');
+  assert.equal(ack.json.joined, true); return ws;
 }
+async function rejectedJoin(url, message, code = 1008, reason, options = {}) {
+  const ws = new WebSocket(url, options); await once(ws, 'open'); const closed = once(ws, 'close');
+  ws.send(JSON.stringify(message)); const [gotCode, gotReason] = await closed;
+  assert.equal(gotCode, code); if (reason) assert.equal(gotReason.toString(), reason);
+}
+async function leaveViewer(relay, key, viewer) {
+  const serverClosed = once(relay.rooms.get(key).viewer, 'close'); const clientClosed = once(viewer, 'close');
+  viewer.close(); await Promise.all([serverClosed, clientClosed]);
+}
+const DEVICE_A = '00000000-0000-4000-8000-000000000001';
+const DEVICE_B = '00000000-0000-4000-8000-000000000002';
+const DEVICE_C = '00000000-0000-4000-8000-000000000003';
+const DEVICE_D = '00000000-0000-4000-8000-000000000004';
 function packet(type, timestamp = 1000n, flags = 0, payload = Buffer.from([42, 43])) {
   const data = Buffer.alloc(13 + payload.length); data[0] = type;
   data.writeBigInt64BE(timestamp, 1); data.writeUInt32BE(flags, 9); payload.copy(data, 13); return data;
@@ -275,4 +289,73 @@ test('fila de voz congestionada descarta áudio sem reiniciar a transmissão do 
   await sendAndReceive(host, viewer, packet(7, 3000n));
   await sendAndReceive(host, viewer, packet(6, 3000n));
   assert.equal(inboxes.get(viewer).messages.filter(entry => entry.binary || entry.json?.type === 'media-reset').length, 0);
+});
+
+test('senha ocupada, senha errada e identificação inválida têm mensagens claras sem criar salas extras', async t => {
+  const { url, relay } = await fixture(t); const key = 'd'.repeat(64);
+  await join(url, 'host', key, DEVICE_A);
+  await rejectedJoin(url, { role: 'host', room: key, device: DEVICE_C }, 1008, 'Senha já está em uso. Escolha outra.');
+  await rejectedJoin(url, { role: 'viewer', room: 'e'.repeat(64), device: DEVICE_B }, 1008, 'Senha não encontrada. Confira a palavra com quem transmite.');
+  await rejectedJoin(url, { role: 'viewer', room: key, device: 'not-a-uuid' }, 1008, 'Identificação do aparelho inválida.');
+  await rejectedJoin(url, { role: 'host', room: 'f'.repeat(64), device: null }, 1008, 'Identificação do aparelho inválida.');
+  await rejectedJoin(url, { role: 'viewer', room: key, device: DEVICE_A }, 1008, 'Use outro aparelho para assistir nesta sala.');
+  assert.equal(relay.rooms.size, 1); assert.equal(relay.rooms.get(key).pinnedViewerDevice, null);
+  assert.equal(relay.rooms.get(key).deviceMode, true); assert.equal(relay.rooms.get(key).hostDevice, DEVICE_A);
+});
+
+test('sala nova vincula o primeiro convidado e recusa outro aparelho mesmo depois da desconexão', async t => {
+  const { url, relay } = await fixture(t); const key = 'e'.repeat(64);
+  const host = await join(url, 'host', key, DEVICE_A); const viewer = await join(url, 'viewer', key, DEVICE_B);
+  await nextJson(host, 'request-keyframe'); assert.equal(relay.rooms.get(key).pinnedViewerDevice, DEVICE_B);
+  await rejectedJoin(url, { role: 'viewer', room: key, device: DEVICE_C }, 1008, 'Esta sala já está ligada a outro aparelho.');
+  await rejectedJoin(url, { role: 'viewer', room: key, device: DEVICE_B }, 1008, 'Sala ocupada');
+  await leaveViewer(relay, key, viewer);
+  await rejectedJoin(url, { role: 'viewer', room: key, device: DEVICE_C }, 1008, 'Esta sala já está ligada a outro aparelho.');
+  await rejectedJoin(url, { role: 'viewer', room: key }, 1008, 'Atualize o aplicativo para entrar nesta sala.');
+  const rejoined = await join(url, 'viewer', key, DEVICE_B.toUpperCase()); await nextJson(host, 'request-keyframe');
+  await sendAndReceive(host, rejoined, Buffer.from([1, 42, 43]));
+  assert.equal(relay.rooms.get(key).pinnedViewerDevice, DEVICE_B);
+});
+
+test('salas antigas continuam aceitando versões antigas e não permitem dois convidados simultâneos', async t => {
+  const { url, relay } = await fixture(t); const key = 'f'.repeat(64);
+  const host = await join(url, 'host', key); const viewer = await join(url, 'viewer', key, DEVICE_B);
+  await nextJson(host, 'request-keyframe');
+  assert.equal(relay.rooms.get(key).deviceMode, false); assert.equal(relay.rooms.get(key).pinnedViewerDevice, null);
+  await rejectedJoin(url, { role: 'viewer', room: key }, 1008, 'Sala ocupada');
+  await leaveViewer(relay, key, viewer); const legacyViewer = await join(url, 'viewer', key);
+  await nextJson(host, 'request-keyframe'); await sendAndReceive(host, legacyViewer, Buffer.from([2, 42, 43]));
+});
+
+test('o vínculo dos aparelhos e as mensagens de uma senha ficam isolados das outras salas', async t => {
+  const { url, relay } = await fixture(t); const keyA = '1'.repeat(64), keyB = '2'.repeat(64);
+  const host = await join(url, 'host', keyA, DEVICE_A); const viewer = await join(url, 'viewer', keyA, DEVICE_B);
+  const otherHost = await join(url, 'host', keyB, DEVICE_C); const otherViewer = await join(url, 'viewer', keyB, DEVICE_D);
+  await nextJson(host, 'request-keyframe'); await nextJson(otherHost, 'request-keyframe');
+  await sendAndReceive(host, viewer, Buffer.from([1, 42, 43])); await barrier(host, viewer);
+  await leaveViewer(relay, keyA, viewer);
+  await rejectedJoin(url, { role: 'viewer', room: keyA, device: DEVICE_D }, 1008, 'Esta sala já está ligada a outro aparelho.');
+  assert.equal(relay.rooms.get(keyA).pinnedViewerDevice, DEVICE_B);
+  assert.equal(relay.rooms.get(keyB).pinnedViewerDevice, DEVICE_D);
+  assert.equal(inboxes.get(otherViewer).messages.length, 0);
+  await sendAndReceive(otherHost, otherViewer, Buffer.from([2, 42, 43]));
+});
+
+test('limita tentativas erradas por IP, ignora XFF não confiável e libera nova tentativa após a janela', async t => {
+  let now = 1000; const { url } = await fixture(t, { joinAttemptLimit: 3, joinWindowMs: 60000, joinClock: () => now, trustedProxyHops: 0 });
+  const key = '3'.repeat(64); const host = await join(url, 'host', key, DEVICE_A);
+  // Entradas corretas não gastam tentativas, mesmo quando vêm do mesmo endereço.
+  await join(url, 'host', '4'.repeat(64), DEVICE_C); await join(url, 'host', '5'.repeat(64), DEVICE_D);
+  for (let i = 0; i < 3; i++) await rejectedJoin(url, { role: 'viewer', room: '6'.repeat(64), device: DEVICE_B });
+  await rejectedJoin(url, { role: 'viewer', room: key, device: DEVICE_B }, 1013, 'Muitas tentativas. Aguarde um minuto e tente novamente.', { headers: { 'X-Forwarded-For': '198.51.100.10' } });
+  now += 60000; const viewer = await join(url, 'viewer', key, DEVICE_B);
+  await nextJson(host, 'request-keyframe'); await sendAndReceive(host, viewer, Buffer.from([1, 42, 43]));
+});
+
+test('quando configurado para proxy confiável, alterar o primeiro IP de XFF não contorna o limite', async t => {
+  const { url } = await fixture(t, { joinAttemptLimit: 2, trustedProxyHops: 1 });
+  const attempt = { role: 'viewer', room: '7'.repeat(64), device: DEVICE_B };
+  for (const spoofed of ['203.0.113.1', '203.0.113.2']) await rejectedJoin(url, attempt, 1008, undefined, { headers: { 'X-Forwarded-For': `${spoofed}, 198.51.100.1` } });
+  await rejectedJoin(url, attempt, 1013, undefined, { headers: { 'X-Forwarded-For': '203.0.113.3, 198.51.100.1' } });
+  await rejectedJoin(url, attempt, 1008, undefined, { headers: { 'X-Forwarded-For': '203.0.113.3, 198.51.100.2' } });
 });
