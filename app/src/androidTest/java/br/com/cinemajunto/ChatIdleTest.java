@@ -1,6 +1,7 @@
 package br.com.cinemajunto;
 
 import android.app.Instrumentation;
+import android.app.Activity;
 import android.content.Intent;
 import android.content.pm.ActivityInfo;
 import android.content.res.Configuration;
@@ -13,9 +14,12 @@ import android.widget.Button;
 import android.widget.EditText;
 import androidx.test.ext.junit.runners.AndroidJUnit4;
 import androidx.test.platform.app.InstrumentationRegistry;
+import androidx.test.runner.lifecycle.ActivityLifecycleMonitorRegistry;
+import androidx.test.runner.lifecycle.Stage;
 import androidx.test.uiautomator.By;
 import androidx.test.uiautomator.UiDevice;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.*;
 import org.junit.runner.RunWith;
 import static org.junit.Assert.*;
@@ -57,8 +61,43 @@ public class ChatIdleTest {
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
         activity = (MainActivity)instrumentation.startActivitySync(intent);
         main(() -> activity.setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_PORTRAIT));
-        until("Activity did not reach portrait", 8000,
-            () -> read(() -> activity.getResources().getConfiguration().orientation == Configuration.ORIENTATION_PORTRAIT));
+        awaitStableSetup();
+    }
+
+    void awaitStableSetup() throws Exception {
+        // A freshly booted Android 15 can apply its theme assets and recreate the activity.
+        // Finish that setup before opening chat, keeping all inactivity assertions unchanged.
+        long deadline = SystemClock.elapsedRealtime() + 10000, stableSince = 0;
+        MainActivity previous = null;
+        String previousConfiguration = null;
+        while (SystemClock.elapsedRealtime() < deadline) {
+            AtomicReference<MainActivity> current = new AtomicReference<>();
+            AtomicReference<String> configuration = new AtomicReference<>();
+            main(() -> {
+                for (Activity candidate : ActivityLifecycleMonitorRegistry.getInstance().getActivitiesInStage(Stage.RESUMED)) {
+                    if (!(candidate instanceof MainActivity)) continue;
+                    MainActivity resumed = (MainActivity)candidate;
+                    if (resumed.destroyed || !resumed.hasWindowFocus() || resumed.root.getWidth() == 0) continue;
+                    if (resumed.getResources().getConfiguration().orientation != Configuration.ORIENTATION_PORTRAIT) {
+                        resumed.setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_PORTRAIT); continue;
+                    }
+                    current.set(resumed);
+                    configuration.set(resumed.getResources().getConfiguration().toString());
+                }
+            });
+            long now = SystemClock.elapsedRealtime();
+            MainActivity resumed = current.get();
+            String stamp = configuration.get();
+            if (resumed == null) stableSince = 0;
+            else {
+                activity = resumed;
+                if (resumed != previous || !stamp.equals(previousConfiguration) || stableSince == 0) stableSince = now;
+                else if (now - stableSince >= 2000) return;
+            }
+            previous = resumed; previousConfiguration = stamp;
+            Thread.sleep(50);
+        }
+        fail("The resumed portrait activity did not reach a stable setup before the chat test");
     }
 
     @After public void close() {

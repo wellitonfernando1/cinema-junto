@@ -44,9 +44,16 @@ async function join(url, role, room, device, options = {}) {
   assert.equal(ack.json.joined, true); return ws;
 }
 async function rejectedJoin(url, message, code = 1008, reason, options = {}) {
-  const ws = new WebSocket(url, options); await once(ws, 'open'); const closed = once(ws, 'close');
-  ws.send(JSON.stringify(message)); const [gotCode, gotReason] = await closed;
+  const ws = new WebSocket(url, options); await once(ws, 'open'); const events = [];
+  ws.on('message', () => events.push('message')); ws.on('close', () => events.push('close'));
+  const rejected = once(ws, 'message'); const closed = once(ws, 'close');
+  ws.send(JSON.stringify(message)); const [data, binary] = await rejected;
+  assert.equal(binary, false); const error = JSON.parse(data.toString());
+  assert.equal(error.type, 'error'); assert.equal(typeof error.message, 'string');
+  if (reason) assert.deepEqual(error, { type: 'error', message: reason });
+  const [gotCode, gotReason] = await closed;
   assert.equal(gotCode, code); if (reason) assert.equal(gotReason.toString(), reason);
+  assert.equal(error.message, gotReason.toString()); assert.deepEqual(events, ['message', 'close']);
 }
 async function leaveViewer(relay, key, viewer) {
   const serverClosed = once(relay.rooms.get(key).viewer, 'close'); const clientClosed = once(viewer, 'close');
@@ -84,8 +91,7 @@ test('transmite imagem e áudio antigos apenas para o convidado da mesma sala', 
 test('rejeita convidado sem anfitrião, convite inválido, JSON nulo e terceiro participante', async t => {
   const { url } = await fixture(t);
   async function rejected(message) {
-    const ws = new WebSocket(url); await once(ws, 'open'); const closed = once(ws, 'close');
-    ws.send(JSON.stringify(message)); const [code] = await closed; assert.equal(code, 1008);
+    await rejectedJoin(url, message);
   }
   await rejected({ role: 'viewer', room: 'c'.repeat(64) }); await rejected({ role: 'host', room: '1234' }); await rejected(null);
   await rejected({ role: 'host', room: ['d'.repeat(64)] });

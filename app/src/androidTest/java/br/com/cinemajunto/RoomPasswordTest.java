@@ -6,14 +6,18 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.os.SystemClock;
+import android.os.Build;
+import android.util.Log;
 import androidx.test.ext.junit.runners.AndroidJUnit4;
 import androidx.test.platform.app.InstrumentationRegistry;
 import androidx.test.uiautomator.By;
 import androidx.test.uiautomator.UiDevice;
 import androidx.test.uiautomator.UiObject2;
 import java.util.Locale;
+import java.io.File;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.regex.Pattern;
 import org.junit.*;
 import org.junit.runner.RunWith;
 import static org.junit.Assert.*;
@@ -39,7 +43,20 @@ public class RoomPasswordTest {
             if (condition.ready()) return;
             Thread.sleep(50);
         }
+        try {
+            File directory = new File(instrumentation.getTargetContext().getExternalFilesDir(null), "ui-test");
+            directory.mkdirs();
+            device.dumpWindowHierarchy(new File(directory, "room-password-api" + Build.VERSION.SDK_INT + ".xml"));
+        } catch (Exception error) { Log.e("CinemaPasswordTest", "Could not save dialog evidence", error); }
         fail(message);
+    }
+
+    UiObject2 dialogButton(String resource, String label) throws Exception {
+        // Dialog buttons can expose uppercase text depending on the Android theme.
+        Pattern text = Pattern.compile(Pattern.quote(label), Pattern.CASE_INSENSITIVE);
+        until("Dialog button was not visible: " + label,
+            () -> device.hasObject(By.res("android", resource).pkg(activity.getPackageName()).text(text)));
+        return device.findObject(By.res("android", resource).pkg(activity.getPackageName()).text(text));
     }
 
     @Before public void launch() {
@@ -120,15 +137,13 @@ public class RoomPasswordTest {
         UiObject2 input = device.findObject(By.desc("Senha que você vai criar"));
         assertNotNull("The host needs a field for choosing the password", input);
         input.setText("  CINÉMA2026  ");
-        UiObject2 create = device.findObject(By.text("Criar sala"));
-        assertNotNull(create); create.click();
-        until("Password creation did not advance to capture consent", () -> device.hasObject(By.text("Continuar")));
+        dialogButton("button1", "Criar sala").click();
+        dialogButton("button1", "Continuar");
         main(() -> {
             assertEquals("cinema2026", activity.pendingPassword);
             assertEquals(RoomPassword.room("cinema2026"), activity.pendingRoom);
         });
-        UiObject2 cancel = device.findObject(By.text("Cancelar"));
-        assertNotNull(cancel); cancel.click();
+        dialogButton("button2", "Cancelar").click();
 
         AtomicReference<Intent> shared = new AtomicReference<>();
         Instrumentation.ActivityMonitor monitor = new Instrumentation.ActivityMonitor() {

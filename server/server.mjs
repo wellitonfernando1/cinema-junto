@@ -135,17 +135,23 @@ export function createRelay({ ttlMs = 2 * 60 * 60 * 1000, mediaBufferLimitBytes 
     wss.handleUpgrade(req, socket, head, ws => wss.emit('connection', ws, req));
   });
   wss.on('connection', (ws, req) => {
-    let joined = false, role, key, lastChatAt = 0, lastTalkStartAt = 0;
+    let joined = false, rejected = false, role, key, lastChatAt = 0, lastTalkStartAt = 0;
     const ip = clientIp(req);
-    const rejectJoin = (code, reason) => { countFailedJoin(ip); ws.close(code, reason); };
+    const rejectJoin = (code, reason, count = true) => {
+      rejected = true; clearTimeout(deadline);
+      if (count) countFailedJoin(ip);
+      if (ws.readyState === WebSocket.OPEN && ws.bufferedAmount < 512 * 1024) {
+        ws.send(JSON.stringify({ type: 'error', message: reason }), { binary: false }, () => ws.close(code, reason));
+      } else ws.close(code, reason);
+    };
     ws.alive = true;
     ws.on('pong', () => { ws.alive = true; });
-    const deadline = setTimeout(() => ws.close(1008, 'Identifique a sala'), 10000);
+    const deadline = setTimeout(() => rejectJoin(1008, 'Identifique a sala', false), 10000);
     deadline.unref();
     ws.on('message', (data, binary) => {
-      if (ws.readyState !== WebSocket.OPEN) return;
+      if (rejected || ws.readyState !== WebSocket.OPEN) return;
       if (!joined) {
-        if (joinBlocked(ip)) { ws.close(1013, 'Muitas tentativas. Aguarde um minuto e tente novamente.'); return; }
+        if (joinBlocked(ip)) { rejectJoin(1013, 'Muitas tentativas. Aguarde um minuto e tente novamente.', false); return; }
         if (binary || data.length > 2048) { rejectJoin(1008, 'Entrada inválida'); return; }
         let msg;
         try { msg = JSON.parse(data.toString()); } catch { rejectJoin(1008, 'Entrada inválida'); return; }

@@ -443,7 +443,11 @@ public class MainActivity extends Activity {
                     if (!watching || socket != ws) return;
                     try {
                         JSONObject msg = new JSONObject(text);
-                        if ("chat".equals(msg.optString("type"))) receiveChat(msg.optString("from"), msg.optString("text"));
+                        if ("error".equals(msg.optString("type"))) {
+                            String reason = msg.optString("message", "Não foi possível entrar na sala.");
+                            ui.post(() -> { if (socket == ws) { stopViewer(); show(reason); } });
+                        }
+                        else if ("chat".equals(msg.optString("type"))) receiveChat(msg.optString("from"), msg.optString("text"));
                         else if ("talk".equals(msg.optString("type")) && voice != null) voice.onControl(msg);
                         else if ("media-reset".equals(msg.optString("type")) && playback != null) playback.resetStream();
                         else if (msg.has("status")) show(msg.optString("status"));

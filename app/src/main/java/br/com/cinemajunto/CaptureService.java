@@ -184,7 +184,10 @@ public class CaptureService extends Service {
                     if (!running || socket != ws) return;
                     try {
                         JSONObject msg = new JSONObject(text);
-                        if ("chat".equals(msg.optString("type"))) chat(msg.optString("from"), msg.optString("text"));
+                        if ("error".equals(msg.optString("type"))) {
+                            status(msg.optString("message", "Não foi possível criar a sala.")); stopSelf();
+                        }
+                        else if ("chat".equals(msg.optString("type"))) chat(msg.optString("from"), msg.optString("text"));
                         else if ("talk".equals(msg.optString("type"))) { VoiceTalk talk = voice; if (talk != null) talk.onControl(msg); }
                         else if ("request-keyframe".equals(msg.optString("type"))) {
                             imageHandler.post(() -> { if (running) { waitingForKeyFrame = true; configurationPending = true; requestSyncFrame(); } });
