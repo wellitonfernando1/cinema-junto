@@ -178,6 +178,11 @@ export function createRelay({ ttlMs = 2 * 60 * 60 * 1000, mediaBufferLimitBytes 
           if (!device) { rejectJoin(1008, 'Atualize o aplicativo para entrar nesta sala.'); return; }
           if (device === room.hostDevice) { rejectJoin(1008, 'Use outro aparelho para assistir nesta sala.'); return; }
           if (room.pinnedViewerDevice && device !== room.pinnedViewerDevice) { rejectJoin(1008, 'Esta sala já está ligada a outro aparelho.'); return; }
+          if (room.viewer && device === room.pinnedViewerDevice) {
+            endTalk(room);
+            const oldViewer = room.viewer; room.viewer = null;
+            oldViewer.close(1000, 'Conexão reaberta no seu aparelho.');
+          }
         }
         if (room[role]) { rejectJoin(1008, 'Sala ocupada'); return; }
         if (role === 'viewer' && room.deviceMode && !room.pinnedViewerDevice) room.pinnedViewerDevice = device;

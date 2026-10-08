@@ -310,13 +310,48 @@ test('senha ocupada, senha errada e identificação inválida têm mensagens cla
   assert.equal(relay.rooms.get(key).deviceMode, true); assert.equal(relay.rooms.get(key).hostDevice, DEVICE_A);
 });
 
-test('sala nova vincula o primeiro convidado e recusa outro aparelho mesmo depois da desconexão', async t => {
+test('sala nova substitui a conexão do aparelho vinculado e recusa outro aparelho mesmo depois da desconexão', async t => {
   const { url, relay } = await fixture(t); const key = 'e'.repeat(64);
   const host = await join(url, 'host', key, DEVICE_A); const viewer = await join(url, 'viewer', key, DEVICE_B);
   await nextJson(host, 'request-keyframe'); assert.equal(relay.rooms.get(key).pinnedViewerDevice, DEVICE_B);
   await rejectedJoin(url, { role: 'viewer', room: key, device: DEVICE_C }, 1008, 'Esta sala já está ligada a outro aparelho.');
-  await rejectedJoin(url, { role: 'viewer', room: key, device: DEVICE_B }, 1008, 'Sala ocupada');
-  await leaveViewer(relay, key, viewer);
+  viewer.send(JSON.stringify({ type: 'talk', active: true }));
+  await expectTalk(host, true, 'viewer'); await expectTalk(viewer, true, 'viewer');
+  const room = relay.rooms.get(key), oldServer = room.viewer;
+  const closeOld = oldServer.close.bind(oldServer); let requestedClose;
+  // Keep the old transport open to exercise queued frames and a delayed close event.
+  oldServer.close = (...args) => { requestedClose = args; };
+  const replacement = await join(url, 'viewer', key, DEVICE_B.toUpperCase());
+  const replacementServer = room.viewer;
+  assert.notEqual(replacementServer, oldServer); assert.equal(room.pinnedViewerDevice, DEVICE_B);
+  assert.deepEqual(requestedClose, [1000, 'Conexão reaberta no seu aparelho.']);
+  await expectTalk(host, false, 'viewer'); await expectTalk(viewer, false, 'viewer');
+  await nextJson(host, 'request-keyframe');
+  replacement.send(JSON.stringify({ type: 'talk', active: true }));
+  await expectTalk(host, true, 'viewer'); await expectTalk(replacement, true, 'viewer');
+  const oldFramesProcessed = new Promise(resolve => {
+    let count = 0;
+    function observed() { if (++count === 3) { oldServer.off('message', observed); resolve(); } }
+    oldServer.on('message', observed);
+  });
+  viewer.send(JSON.stringify({ type: 'chat', text: 'Mensagem antiga' }));
+  viewer.send(packet(7, 9000n)); viewer.send(Buffer.from([1, 42, 43])); await oldFramesProcessed;
+  replacement.send(JSON.stringify({ type: 'chat', text: 'Mensagem nova' }));
+  assert.deepEqual((await nextJson(host, 'chat')).json, { type: 'chat', from: 'viewer', text: 'Mensagem nova' });
+  await nextJson(replacement, 'chat');
+  await sendAndReceive(replacement, host, packet(7, 10000n));
+  await sendAndReceive(host, replacement, Buffer.from([1, 44, 45]));
+  assert.equal(inboxes.get(viewer).messages.filter(entry => entry.binary || entry.json?.type === 'chat').length, 0);
+  assert.equal(inboxes.get(host).messages.filter(entry => entry.binary || entry.json?.type === 'chat').length, 0);
+  const oldClosed = once(viewer, 'close'), oldServerClosed = once(oldServer, 'close');
+  oldServer.close = closeOld; closeOld(...requestedClose);
+  const [code, reason] = await oldClosed; await oldServerClosed;
+  assert.equal(code, 1000); assert.equal(reason.toString(), 'Conexão reaberta no seu aparelho.');
+  assert.equal(room.viewer, replacementServer); assert.equal(room.talker, 'viewer');
+  await sendAndReceive(replacement, host, packet(7, 11000n));
+  replacement.send(JSON.stringify({ type: 'talk', active: false }));
+  await expectTalk(host, false, 'viewer'); await expectTalk(replacement, false, 'viewer');
+  await leaveViewer(relay, key, replacement);
   await rejectedJoin(url, { role: 'viewer', room: key, device: DEVICE_C }, 1008, 'Esta sala já está ligada a outro aparelho.');
   await rejectedJoin(url, { role: 'viewer', room: key }, 1008, 'Atualize o aplicativo para entrar nesta sala.');
   const rejoined = await join(url, 'viewer', key, DEVICE_B.toUpperCase()); await nextJson(host, 'request-keyframe');
