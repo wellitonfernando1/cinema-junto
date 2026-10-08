@@ -69,7 +69,7 @@ public class MainActivity extends Activity {
         controls.setPadding(dp(16), dp(12), dp(16), dp(12)); controls.setBackgroundColor(0xfffafafa);
         setupScroll.addView(controls); mainLayout.addView(setupScroll, new LinearLayout.LayoutParams(-1, 0, 1));
         TextView title = new TextView(this); title.setTextColor(Color.BLACK); title.setText("Cinema Junto Chat Final"); title.setTextSize(24); controls.addView(title);
-        TextView subtitle = new TextView(this); subtitle.setTextColor(Color.BLACK); subtitle.setText("Você e seu amigo, com filme e mensagens juntos."); controls.addView(subtitle);
+        TextView subtitle = new TextView(this); subtitle.setTextColor(Color.BLACK); subtitle.setText("Filme, chat e microfone com seu amigo · Versão 0.5"); controls.addView(subtitle);
         endpoint = new EditText(this); endpoint.setSingleLine(true); endpoint.setHint("Endereço do servidor");
         readableInput(endpoint);
         endpoint.setText(getPreferences(0).getString("endpoint", "https://cinema-junto-welliton.onrender.com/")); controls.addView(endpoint);

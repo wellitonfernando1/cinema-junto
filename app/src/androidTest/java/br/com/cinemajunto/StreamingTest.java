@@ -245,5 +245,20 @@ public class StreamingTest {
         Thread.sleep(250);
         assertEquals("Video continued after the audio clock exhausted its buffer", stopped, engine.renderedFrames);
         assertTrue("Audio clock continued through starvation", Math.abs(engine.clockUs() - stoppedClock) < 30000);
+        // Resets must stay ordered before immediately arriving configuration and keyframes.
+        // Muting for push-to-talk must leave the film clock and image running.
+        long resumeUs = START_US + 2_000_000L;
+        engine.setFilmMuted(true);
+        engine.resetStream();
+        engine.offer(StreamPacket.pack(StreamPacket.AVC_CONFIG, resumeUs, 0, movie.config));
+        video(engine, movie, 0, 1000, resumeUs);
+        audio(engine, 0, 1000, resumeUs);
+        until("Film did not resume after an ordered media reset", 5000,
+            () -> engine.renderedFrames > stopped + 2 && engine.lastRenderedTimestampUs >= resumeUs);
+        long mutedClock = engine.clockUs();
+        until("Muting for voice paused the film", 1500, () -> engine.clockUs() > mutedClock + 100000);
+        assertTrue(engine.filmMuted);
+        engine.setFilmMuted(false);
+        assertRealGreenVideo("Recovered AVC was hidden after voice muting");
     }
 }

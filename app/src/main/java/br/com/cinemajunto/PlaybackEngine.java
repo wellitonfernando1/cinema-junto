@@ -6,7 +6,6 @@ import android.view.Surface;
 import java.nio.ByteBuffer;
 import java.util.*;
 import java.util.concurrent.ArrayBlockingQueue;
-import java.util.concurrent.atomic.AtomicBoolean;
 
 /** Bounded receiver buffer. The audio actually played by the device is the video clock. */
 final class PlaybackEngine implements AutoCloseable {
@@ -23,7 +22,6 @@ final class PlaybackEngine implements AutoCloseable {
     final Handler ui = new Handler(Looper.getMainLooper());
     final ArrayBlockingQueue<StreamPacket.Packet> incoming = new ArrayBlockingQueue<>(180);
     final ArrayDeque<StreamPacket.Packet> audio = new ArrayDeque<>(), video = new ArrayDeque<>();
-    final AtomicBoolean reset = new AtomicBoolean();
     volatile boolean running = true, buffering = true;
     volatile boolean filmMuted;
     private boolean appliedMute;
@@ -38,6 +36,7 @@ final class PlaybackEngine implements AutoCloseable {
     StreamPacket.Packet pcm;
     int pcmOffset;
     long audioOriginUs = Long.MIN_VALUE, writtenFrames, firstVideoUs, lastKeyRequestMs;
+    int audioAheadFrames;
     boolean waitingForKeyFrame = true, started;
 
     PlaybackEngine(FilmView view, Listener listener) {
@@ -51,10 +50,16 @@ final class PlaybackEngine implements AutoCloseable {
             if (packet.type != StreamPacket.PCM && packet.type != StreamPacket.AVC_CONFIG && packet.type != StreamPacket.AVC_FRAME) return;
             if (packet.type == StreamPacket.PCM && (packet.payload.length == 0 || packet.payload.length > 17640 || (packet.payload.length & 1) != 0)) return;
             if (packet.type == StreamPacket.AVC_CONFIG) StreamPacket.parseVideoConfig(packet.payload);
-            if (!incoming.offer(packet)) { incoming.clear(); reset.set(true); incoming.offer(packet); }
+            if (!incoming.offer(packet)) {
+                incoming.clear(); incoming.offer(new StreamPacket.Packet(0, 0, 0, new byte[0])); incoming.offer(packet);
+            }
         } catch (IllegalArgumentException ignored) {}
     }
-    void resetStream() { reset.set(true); }
+    void resetStream() {
+        // Keep the reset ordered with configuration/keyframes that immediately follow it.
+        StreamPacket.Packet marker = new StreamPacket.Packet(0, 0, 0, new byte[0]);
+        if (!incoming.offer(marker)) { incoming.clear(); incoming.offer(marker); }
+    }
     void setFilmMuted(boolean muted) { filmMuted = muted; }
     long clockUs() { return currentClockUs; }
     private void state(boolean value) {
@@ -71,9 +76,11 @@ final class PlaybackEngine implements AutoCloseable {
                 .setAudioAttributes(new AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).setContentType(AudioAttributes.CONTENT_TYPE_MOVIE).build())
                 .setAudioFormat(new AudioFormat.Builder().setSampleRate(RATE).setChannelMask(AudioFormat.CHANNEL_OUT_MONO).setEncoding(AudioFormat.ENCODING_PCM_16BIT).build())
                 .setBufferSizeInBytes(Math.max(min, 17640)).setTransferMode(AudioTrack.MODE_STREAM).build();
+            // A streaming track may not start until its device buffer is full.
+            // Feeding less than that threshold would leave the playback clock at zero forever.
+            audioAheadFrames = track.getBufferSizeInFrames();
             while (running && !Thread.currentThread().isInterrupted()) {
                 if (appliedMute != filmMuted) { appliedMute = filmMuted; track.setVolume(appliedMute ? 0f : 1f); }
-                if (reset.getAndSet(false)) { restart(); incoming.clear(); requestKeyFrame(); }
                 StreamPacket.Packet packet;
                 while ((packet = incoming.poll()) != null) accept(packet);
                 if (decoder != null && surfaceGeneration != view.surfaceGeneration()) { restart(); requestKeyFrame(); }
@@ -121,7 +128,8 @@ final class PlaybackEngine implements AutoCloseable {
         return frames * 1000000L / RATE;
     }
     private void accept(StreamPacket.Packet p) {
-        if (p.type == StreamPacket.AVC_CONFIG) {
+        if (p.type == 0) { restart(); requestKeyFrame(); }
+        else if (p.type == StreamPacket.AVC_CONFIG) {
             if (!Arrays.equals(configBytes, p.payload)) {
                 restart(); config = StreamPacket.parseVideoConfig(p.payload); configBytes = p.payload;
             }
@@ -147,9 +155,9 @@ final class PlaybackEngine implements AutoCloseable {
     }
     private long playedFrames() { return track.getPlaybackHeadPosition() & 0xffffffffL; }
     private void fillAudio() {
-        // Keep only 100 ms in AudioTrack; the remainder stays in the bounded jitter buffer.
+        // Fill the device's startup threshold; the remainder stays in the jitter buffer.
         long head = playedFrames();
-        while (running && writtenFrames - head < RATE / 10) {
+        while (running && writtenFrames - head < audioAheadFrames) {
             if (pcm == null) {
                 pcm = audio.pollFirst(); pcmOffset = 0; if (pcm == null) return;
                 long expectedUs = audioOriginUs + writtenFrames * 1000000L / RATE;
@@ -189,7 +197,10 @@ final class PlaybackEngine implements AutoCloseable {
             }
             if (output.presentationTimeUs > clockUs + 15000) break;
             boolean render = output.presentationTimeUs >= clockUs - 120000;
-            decoder.releaseOutputBuffer(outputIndex, render); outputIndex = -1;
+            // The host's boot clock differs from this device's Surface presentation clock.
+            if (render) decoder.releaseOutputBuffer(outputIndex, System.nanoTime());
+            else decoder.releaseOutputBuffer(outputIndex, false);
+            outputIndex = -1;
             if (render) { renderedFrames++; lastRenderedTimestampUs = output.presentationTimeUs; }
         }
     }
