@@ -4,7 +4,9 @@ import android.content.Context;
 import android.graphics.PixelFormat;
 import android.os.*;
 import android.provider.Settings;
+import android.text.Editable;
 import android.text.InputFilter;
+import android.text.TextWatcher;
 import android.view.*;
 import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputMethodManager;
@@ -28,6 +30,10 @@ final class HostChatOverlay {
     WindowManager.LayoutParams bubbleParams;
     boolean closed, keyboardSeen;
     int bannerSequence;
+    String draft = "";
+    int draftCursor;
+    final Runnable idleClose = this::closeComposer;
+    final Runnable keyboardOpen = this::openKeyboardNow;
 
     HostChatOverlay(Context context, Sender sender) {
         this.context = context; this.sender = sender; windows = context.getSystemService(WindowManager.class);
@@ -93,7 +99,7 @@ final class HostChatOverlay {
     }
     void open() {
         if (closed || !Settings.canDrawOverlays(context)) return;
-        show(); if (composer != null) { input.requestFocus(); showKeyboard(); return; }
+        show(); if (composer != null) { input.requestFocus(); showKeyboard(); resetIdleTimeout(); return; }
         keyboardSeen = false;
         composer = new Composer(context); composer.setOrientation(LinearLayout.VERTICAL);
         composer.setPadding(dp(6), 0, dp(6), 0); composer.setBackgroundColor(0xff171717);
@@ -105,6 +111,12 @@ final class HostChatOverlay {
         input.setTextColor(0xffffffff); input.setHintTextColor(0xffbbbbbb);
         input.setContentDescription("Mensagem de quem transmite"); input.setFilters(new InputFilter[]{new InputFilter.LengthFilter(280)});
         input.setImeOptions(EditorInfo.IME_ACTION_SEND | EditorInfo.IME_FLAG_NO_EXTRACT_UI | EditorInfo.IME_FLAG_NO_FULLSCREEN);
+        input.setText(draft); input.setSelection(Math.min(draftCursor, input.length()));
+        input.addTextChangedListener(new TextWatcher() {
+            public void beforeTextChanged(CharSequence text, int start, int count, int after) {}
+            public void onTextChanged(CharSequence text, int start, int before, int count) {}
+            public void afterTextChanged(Editable text) { resetIdleTimeout(); }
+        });
         input.setOnEditorActionListener((v, action, event) -> { if (action == EditorInfo.IME_ACTION_SEND) { send(); return true; } return false; });
         row.addView(input, new LinearLayout.LayoutParams(0, dp(48), 1));
         Button send = compactButton("Enviar"); send.setOnClickListener(v -> send()); row.addView(send, new LinearLayout.LayoutParams(dp(70), dp(44)));
@@ -112,7 +124,10 @@ final class HostChatOverlay {
         row.addView(close, new LinearLayout.LayoutParams(dp(44), dp(44))); composer.addView(row);
         LinearLayout emojis = new LinearLayout(context);
         for (String emoji : new String[]{"😀", "😂", "😍", "❤️", "👍"}) {
-            Button b = compactButton(emoji); b.setOnClickListener(v -> input.getText().insert(Math.max(0, input.getSelectionStart()), emoji));
+            Button b = compactButton(emoji); b.setOnClickListener(v -> {
+                resetIdleTimeout();
+                if (input != null) input.getText().insert(Math.max(0, input.getSelectionStart()), emoji);
+            });
             emojis.addView(b, new LinearLayout.LayoutParams(0, dp(32), 1));
         }
         composer.addView(emojis);
@@ -127,30 +142,42 @@ final class HostChatOverlay {
         try {
             windows.addView(composer, params(-1, -2, Gravity.BOTTOM, true));
             if (bubble != null) { bubble.setText("Chat"); bubble.setVisibility(View.GONE); }
-            input.requestFocus(); showKeyboard();
-        } catch (Exception e) { composer = null; input = null; recent = null; }
+            input.requestFocus(); showKeyboard(); resetIdleTimeout();
+        } catch (Exception e) { closeComposer(); }
     }
     Button compactButton(String text) {
         Button b = new Button(context); b.setText(text); b.setTextSize(13); b.setMinWidth(0); b.setMinimumWidth(0);
         b.setMinHeight(0); b.setMinimumHeight(0); b.setPadding(dp(3), 0, dp(3), 0); return b;
     }
     void showKeyboard() {
-        main.postDelayed(() -> {
-            if (input == null || composer == null || !input.hasWindowFocus()) return;
-            input.requestFocus();
-            if (Build.VERSION.SDK_INT >= 30 && input.getWindowInsetsController() != null)
-                input.getWindowInsetsController().show(WindowInsets.Type.ime());
-            else context.getSystemService(InputMethodManager.class).showSoftInput(input, 0);
-        }, 200);
+        main.removeCallbacks(keyboardOpen);
+        main.postDelayed(keyboardOpen, 200);
+    }
+    void openKeyboardNow() {
+        if (closed || input == null || composer == null || !input.hasWindowFocus()) return;
+        input.requestFocus();
+        if (Build.VERSION.SDK_INT >= 30 && input.getWindowInsetsController() != null)
+            input.getWindowInsetsController().show(WindowInsets.Type.ime());
+        else context.getSystemService(InputMethodManager.class).showSoftInput(input, 0);
+    }
+    void resetIdleTimeout() {
+        main.removeCallbacks(idleClose);
+        if (!closed && composer != null) main.postDelayed(idleClose, 5000);
     }
     void send() {
+        resetIdleTimeout();
         if (input == null) return;
         String text = input.getText().toString().trim(); if (text.isEmpty()) return;
         if (sender.send(text)) input.setText("");
         else if (recent != null) recent.setText("Chat desconectado. Encerre e tente novamente.");
     }
     void closeComposer() {
+        main.removeCallbacks(idleClose); main.removeCallbacks(keyboardOpen);
         if (composer == null) return;
+        if (input != null) {
+            draft = input.getText().toString();
+            draftCursor = Math.max(0, input.getSelectionStart());
+        }
         Composer old = composer; composer = null; keyboardSeen = false;
         if (input != null) context.getSystemService(InputMethodManager.class).hideSoftInputFromWindow(input.getWindowToken(), 0);
         remove(old); input = null; recent = null;
@@ -173,6 +200,11 @@ final class HostChatOverlay {
         OnBackInvokedDispatcher backDispatcher;
         OnBackInvokedCallback backCallback;
         Composer(Context context) { super(context); }
+        @Override public boolean dispatchTouchEvent(MotionEvent event) {
+            if (event.getActionMasked() == MotionEvent.ACTION_DOWN || event.getActionMasked() == MotionEvent.ACTION_MOVE)
+                resetIdleTimeout();
+            return super.dispatchTouchEvent(event);
+        }
         @Override public void onWindowFocusChanged(boolean focused) {
             super.onWindowFocusChanged(focused);
             if (focused && composer == this) {

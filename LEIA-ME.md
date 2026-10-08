@@ -4,7 +4,7 @@ Projeto Android para Welliton e um amigo assistirem à tela e ao áudio do celul
 
 ## Estado desta entrega
 
-O APK é gerado pelo GitHub Actions e o servidor está publicado no plano Free do Render em https://cinema-junto-welliton.onrender.com/. Esta versão redesenha o vídeo ao girar ou abrir o teclado, preserva a imagem ao entrar em tela cheia e oferece chat flutuante para quem transmite. Há testes de interface em emuladores Android 10 e 15. A compatibilidade com o YouCine precisa ser confirmada nos aparelhos reais.
+O APK é gerado pelo GitHub Actions e o servidor está publicado no plano Free do Render em https://cinema-junto-welliton.onrender.com/. A versão 0.5 usa vídeo AVC/H.264 nativo a até 24 quadros por segundo, pequeno buffer e relógio comum para áudio e imagem. O teclado fecha após cinco segundos sem uso e preserva o rascunho. Os dois participantes podem segurar o botão de microfone para falar. A compatibilidade com o YouCine e a fluidez precisam ser confirmadas nos aparelhos reais.
 
 ## Instalar ou gerar novamente o APK sem Android Studio
 
@@ -30,21 +30,23 @@ O servidor pode levar algum tempo para responder após inatividade, conforme as 
 
 1. Confirme que o endereço HTTPS do servidor já está preenchido.
 2. Toque em Transmitir minha tela e o som.
-3. Autorize o áudio e ative **Aparecer sobre outros apps** quando solicitado. Volte ao Cinema Junto para autorizar a captura de tela. A permissão de áudio é necessária para copiar o som interno, não é utilizada para gravar seu microfone.
+3. Autorize o áudio e ative **Aparecer sobre outros apps** quando solicitado. Volte ao Cinema Junto para autorizar a captura de tela. A permissão de áudio permite copiar o som interno e, somente enquanto você segura o botão para falar, enviar a voz do microfone.
 4. Em celulares que oferecem seleção de aplicativo, selecione o YouCine. Se selecionar a tela inteira, o amigo verá tudo que aparecer nela.
 5. Aguarde a mensagem de confirmação da sala.
 6. Toque em Compartilhar convite e envie-o ao amigo.
 7. Abra o YouCine e dê play no filme. A notificação Cinema Junto mantém a captura ativa.
-8. As mensagens aparecem por alguns segundos no alto. Toque no botão flutuante **Chat** para responder com o teclado ou emojis. Arraste o botão para mudá-lo de lugar. Toque em **×** ou feche o teclado para recolher o chat. Também há um botão Chat na notificação da transmissão.
+8. O botão **Segure para falar** fica sobre o filme. Mantenha o dedo nele para enviar sua voz; solte para encerrar. O som do filme fica silenciado nos dois aparelhos durante a fala, enquanto a imagem continua. Use fones para reduzir eco. Uma fala tem limite de 30 segundos e somente uma pessoa fala por vez.
+9. No Android 13 e anteriores, o chat de quem transmite fica escondido, conforme a preferência desta entrega. Quem assiste mantém o próprio chat. Android 14 atualizado e posteriores oferecem chat flutuante; escolha compartilhar **Um app** para evitar enviar chat e teclado na captura. Ao escolher tela inteira, o botão de microfone e outras janelas também podem aparecer no vídeo.
 
 ### Quem assiste
 
 1. Abra o Cinema Junto.
 2. Cole o convite completo no campo indicado. O convite é para colar no aplicativo, não para reproduzir em um navegador.
-3. Toque em Assistir ao meu amigo. A imagem aparece na área preta e o som é reproduzido pelo celular.
+3. Toque em Assistir ao meu amigo. Aguarde o pequeno carregamento inicial de aproximadamente 450 ms de áudio, além do tempo de conexão. O buffer reduz variações de chegada da rede. Se faltarem dados, áudio e vídeo aguardam juntos.
 4. Toque em **Tela cheia** para ocupar a tela em paisagem; toque em **Voltar** para sair. Girar o aparelho mantém a conexão ativa. Os controles desaparecem após alguns segundos; toque na imagem para mostrá-los. **Ampliar** preenche a tela recortando as bordas da imagem; **Ajustar** volta a mostrar a imagem inteira.
-5. Toque em **Chat** para escrever com o teclado ou usar os emojis rápidos. O filme continua na parte de cima e o teclado ocupa a parte de baixo. Ao fechar o teclado, o chat recolhe e a imagem volta a ocupar a tela. O editor de texto não abre em tela inteira na orientação paisagem. As mensagens dos dois participantes passam no topo do vídeo por alguns segundos.
+5. Toque em **Chat** para escrever com o teclado ou usar os emojis rápidos. O filme continua na parte de cima e o teclado ocupa a parte de baixo. Ao fechar o teclado, ou após cinco segundos sem usar o chat, ele recolhe e a imagem volta a ocupar a tela. O rascunho é preservado. O editor de texto não abre em tela inteira na orientação paisagem. As mensagens aparecem no topo do vídeo por alguns segundos.
 6. Use fones para evitar eco se vocês também estiverem conversando por outro aplicativo.
+7. No topo há **Segure para falar**. Autorize o microfone na primeira vez e segure novamente. Durante a fala de qualquer participante, o filme continua com imagem e seu som fica silenciado. Ao soltar, o som retorna. Não há gravação permanente da voz.
 
 ### Encerrar
 
@@ -52,12 +54,14 @@ Quem transmite pode tocar em Encerrar na notificação ou dentro do aplicativo. 
 
 ## Limites importantes da versão de teste
 
-- Imagem JPEG até 960 pixels no maior lado e cerca de 12 quadros por segundo; áudio PCM mono a 44,1 kHz. É uma prova de funcionamento, ainda não tem a fluidez de um serviço de vídeo profissional.
-- O áudio e a imagem não possuem sincronização por timestamps; pode ocorrer diferença perceptível entre fala e imagem. Melhorar esse comportamento exige uma próxima etapa de desenvolvimento com codecs de vídeo e áudio e controle de sincronismo.
+- Vídeo AVC/H.264 até 960 pixels no maior lado e até 24 quadros por segundo, aproximadamente 1,4 Mbps; áudio do filme PCM mono a 44,1 kHz. A qualidade e a fluidez variam conforme o aparelho e a rede. Voz usa PCM mono a 16 kHz.
+- Áudio e imagem recebidos usam timestamps do mesmo relógio, e o vídeo acompanha o áudio realmente reproduzido. O buffer inicial é de 450 ms, com filas limitadas. Congestionamento pede um novo quadro completo para recuperar o vídeo.
+- Quem transmite assiste ao filme local antes de ele chegar ao amigo. A captura não controla a pausa ou a posição do YouCine; o buffer acrescenta pequeno atraso e não garante o mesmo instante nos dois aparelhos. A sincronização exata exigiria ambos reproduzirem a mesma fonte em um player controlado pelo Cinema Junto.
 - O envio integral por um servidor e o áudio sem compressão consomem dados. Prefira Wi-Fi; esta versão não serve como opção econômica para dados móveis.
 - A gravação feita pelo gravador do fabricante não garante que outro aplicativo poderá capturar o YouCine. O áudio pode sair silencioso conforme a política do aplicativo. Não há recurso para contornar bloqueios.
-- Tela compartilhada exige autorização a cada nova sessão. Não há captura automática, gravação permanente nem câmera/microfone de conversa.
-- O chat flutuante só existe enquanto a transmissão está ativa e é removido ao encerrar. Ao compartilhar a tela inteira, a janela de chat e o teclado também podem aparecer na imagem compartilhada. Em Androids que oferecem compartilhar um aplicativo, essa seleção evita compartilhar outras janelas.
+- Tela compartilhada exige autorização a cada nova sessão. Não há captura automática nem gravação permanente. O microfone de conversa só funciona com o botão pressionado, tem limite de 30 segundos e para ao soltar, perder a conexão ou encerrar.
+- Android 13 e anteriores ocultam o chat do transmissor nesta entrega. Compartilhamento exclusivo de um aplicativo exige Android 14 atualizado ou posterior. Compartilhar a tela inteira pode exibir informações de outros aplicativos. O botão flutuante de microfone é retirado ao encerrar.
+- O som original do filme no transmissor é silenciado pelo volume de mídia do Android durante a fala; o volume anterior é restaurado ao terminar. O áudio da voz usa a saída de comunicação. Roteamento, fones e captura simultânea de áudio interno e microfone precisam de teste no aparelho real; alguns fabricantes podem impor restrições.
 - Não há reconexão automática. Ao perder a rede, encerre e tente novamente.
 - Abrir o aplicativo pela notificação pode recriar a tela de controles, mas a transmissão continua no serviço. Não inicie outra transmissão antes de encerrar a primeira.
 - O destinatário precisa manter o aplicativo aberto. A rotação da tela é tratada sem recriar a conexão, mas o Android ainda pode encerrar o aplicativo por falta de memória ou restrições de bateria.

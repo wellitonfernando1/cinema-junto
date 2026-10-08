@@ -46,7 +46,8 @@ public class ViewingTest {
         Canvas c = new Canvas(frame); c.drawColor(Color.GREEN);
         Paint p = new Paint(); p.setColor(Color.BLUE); c.drawRect(0, 0, 160, 540, p);
         ByteArrayOutputStream output = new ByteArrayOutputStream(); frame.compress(Bitmap.CompressFormat.JPEG, 90, output); frame.recycle();
-        main(() -> { activity.watching = true; activity.updateLayout(); activity.startPlayback(); activity.latest.set(output.toByteArray()); });
+        Bitmap poster = BitmapFactory.decodeByteArray(output.toByteArray(), 0, output.size());
+        main(() -> { activity.watching = true; activity.updateLayout(); activity.startPlayback(); activity.screen.setFrame(poster); activity.loading.setVisibility(View.GONE); });
         until("Incoming JPEG was not drawn", () -> activity.screen.hasFrame());
     }
     void fullscreen() throws Exception {
@@ -75,9 +76,9 @@ public class ViewingTest {
         fail("The visible movie became black: " + Integer.toHexString(color));
     }
     @Test public void fullscreenKeepsDecodedMovieAcrossRotation() throws Exception {
-        startFilm(); Thread receiver = activity.imageThread; int generation = activity.playbackGeneration;
+        startFilm(); Thread receiver = activity.playback.worker; int generation = activity.playbackGeneration;
         fullscreen(); assertFilmVisible("fullscreen");
-        assertSame("Rotation replaced the playback thread", receiver, activity.imageThread);
+        assertSame("Rotation replaced the playback thread", receiver, activity.playback.worker);
         assertEquals(generation, activity.playbackGeneration);
         main(() -> activity.exitFullscreen()); assertFilmVisible("after-fullscreen");
         assertTrue(activity.watching);

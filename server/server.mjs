@@ -2,8 +2,99 @@ import http from 'node:http';
 import { WebSocketServer, WebSocket } from 'ws';
 import { pathToFileURL } from 'node:url';
 
-export function createRelay({ ttlMs = 2 * 60 * 60 * 1000 } = {}) {
+export function createRelay({ ttlMs = 2 * 60 * 60 * 1000, mediaBufferLimitBytes = 256 * 1024, talkTtlMs = 30000 } = {}) {
   const rooms = new Map();
+  const send = (target, data, binary = false) => {
+    if (target?.readyState !== WebSocket.OPEN || target.bufferedAmount >= 512 * 1024) return false;
+    target.send(data, { binary });
+    return true;
+  };
+  const requestKeyframe = (room, force = false) => {
+    const now = Date.now();
+    if (!force && now - room.lastKeyframeRequestAt < 1000) return;
+    if (send(room.host, JSON.stringify({ type: 'request-keyframe' }))) room.lastKeyframeRequestAt = now;
+  };
+  const resetMedia = room => {
+    room.waitingKeyframe = true;
+    room.needsConfig = true;
+    room.resetPending = true;
+    if (send(room.viewer, JSON.stringify({ type: 'media-reset' }))) room.resetPending = false;
+    requestKeyframe(room);
+  };
+  const broadcastTalk = (room, active, from) => {
+    const message = JSON.stringify({ type: 'talk', active, from });
+    send(room.host, message); send(room.viewer, message);
+  };
+  const endTalk = room => {
+    if (!room.talker) return;
+    const from = room.talker; room.talker = null;
+    clearTimeout(room.talkTimer); room.talkTimer = null;
+    broadcastTalk(room, false, from);
+  };
+  const forwardVoice = (room, role, data) => {
+    if (room.talker !== role || data.length <= 13 || data.length > 6413 || (data.length - 13) % 2 !== 0 ||
+        data.readBigInt64BE(1) < 0n || data.readUInt32BE(9) !== 0) return;
+    const now = Date.now();
+    room.voiceTokens = Math.min(64000, room.voiceTokens + Math.max(0, now - room.voiceUpdatedAt) * 32);
+    room.voiceUpdatedAt = now;
+    if (room.voiceTokens < data.length - 13) return;
+    room.voiceTokens -= data.length - 13;
+    const peer = role === 'host' ? room.viewer : room.host;
+    if (peer?.bufferedAmount < mediaBufferLimitBytes) send(peer, data, true);
+  };
+  const forwardMedia = (room, data) => {
+    const type = data[0];
+    if ([1, 2].includes(type)) {
+      if (data.length >= 2 && room.viewer?.bufferedAmount < mediaBufferLimitBytes) send(room.viewer, data, true);
+      return;
+    }
+    // New media packets have a kind, a monotonic timestamp in microseconds, and codec flags.
+    if (![4, 5, 6].includes(type) || data.length <= 13 || data.readBigInt64BE(1) < 0n || data.readUInt32BE(9) > 7) return;
+    const payloadSize = data.length - 13;
+    if (type === 4 && (payloadSize > 32 * 1024 || payloadSize % 2 !== 0)) return;
+    if (type === 5 && payloadSize > 64 * 1024) return;
+    const wasStreaming = !room.waitingKeyframe;
+    let changedConfig = false;
+    if (type === 5) {
+      changedConfig = !room.config?.subarray(13).equals(data.subarray(13));
+      room.config = Buffer.from(data);
+      if (changedConfig) { room.waitingKeyframe = true; room.needsConfig = true; }
+    }
+    const viewer = room.viewer;
+    if (viewer?.readyState !== WebSocket.OPEN) return;
+    if (viewer.bufferedAmount >= mediaBufferLimitBytes) {
+      // Once one AVC frame is lost, dependent frames cannot be decoded safely.
+      // Audio is also discarded until a new keyframe starts the shared timeline.
+      if (wasStreaming || !room.needsConfig) resetMedia(room);
+      else requestKeyframe(room);
+      return;
+    }
+    if (room.resetPending) {
+      if (!send(viewer, JSON.stringify({ type: 'media-reset' }))) return;
+      room.resetPending = false;
+    }
+    if (type === 5) {
+      if ((changedConfig || room.needsConfig) && send(viewer, data, true)) room.needsConfig = false;
+      return;
+    }
+    if (type === 4) {
+      if (!room.waitingKeyframe && data.readBigInt64BE(1) >= room.resumeTimestamp) send(viewer, data, true);
+      return;
+    }
+    if (room.waitingKeyframe) {
+      if (!(data.readUInt32BE(9) & 1) || !room.config) { requestKeyframe(room); return; }
+      if (room.needsConfig) {
+        if (!send(viewer, room.config, true)) return;
+        room.needsConfig = false;
+      }
+      if (send(viewer, data, true)) {
+        room.waitingKeyframe = false;
+        room.resumeTimestamp = data.readBigInt64BE(1);
+      }
+      return;
+    }
+    send(viewer, data, true);
+  };
   const server = http.createServer((req, res) => {
     if (req.url === '/health') { res.writeHead(200); res.end('ok'); return; }
     res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
@@ -15,26 +106,26 @@ export function createRelay({ ttlMs = 2 * 60 * 60 * 1000 } = {}) {
     wss.handleUpgrade(req, socket, head, ws => wss.emit('connection', ws));
   });
   wss.on('connection', ws => {
-    let joined = false, role, key, lastChatAt = 0;
+    let joined = false, role, key, lastChatAt = 0, lastTalkStartAt = 0;
     ws.alive = true;
     ws.on('pong', () => { ws.alive = true; });
     const deadline = setTimeout(() => ws.close(1008, 'Identifique a sala'), 10000);
     deadline.unref();
-    const send = (target, data, binary = false) => {
-      if (target?.readyState === WebSocket.OPEN && target.bufferedAmount < 512 * 1024) target.send(data, { binary });
-    };
     ws.on('message', (data, binary) => {
       if (!joined) {
         if (binary || data.length > 2048) { ws.close(1008, 'Entrada inválida'); return; }
         let msg;
         try { msg = JSON.parse(data.toString()); } catch { ws.close(1008, 'Entrada inválida'); return; }
-        if (!/^[a-f0-9]{64}$/.test(msg.room) || !['host','viewer'].includes(msg.role)) { ws.close(1008, 'Convite inválido'); return; }
+        if (!msg || typeof msg !== 'object' || Array.isArray(msg) || !/^[a-f0-9]{64}$/.test(msg.room) || !['host','viewer'].includes(msg.role)) { ws.close(1008, 'Convite inválido'); return; }
         role = msg.role; key = msg.room;
         let room = rooms.get(key);
         if (role === 'host' && !room) {
           if (rooms.size >= 50) { ws.close(1013, 'Servidor ocupado'); return; }
-          room = { host: null, viewer: null, timer: null };
+          room = { host: null, viewer: null, timer: null, config: null, waitingKeyframe: true,
+            needsConfig: true, resetPending: false, resumeTimestamp: 0n, lastKeyframeRequestAt: -Infinity,
+            talker: null, talkTimer: null, voiceTokens: 64000, voiceUpdatedAt: 0 };
           room.timer = setTimeout(() => {
+            endTalk(room);
             room.host?.close(1000, 'Sala expirada'); room.viewer?.close(1000, 'Sala expirada'); rooms.delete(key);
           }, ttlMs);
           room.timer.unref(); rooms.set(key, room);
@@ -42,14 +133,33 @@ export function createRelay({ ttlMs = 2 * 60 * 60 * 1000 } = {}) {
         if (!room || room[role]) { ws.close(1008, room ? 'Sala ocupada' : 'Sala não está transmitindo'); return; }
         joined = true; clearTimeout(deadline); room[role] = ws;
         send(ws, JSON.stringify({ status: role === 'host' ? 'Pronto. Envie o convite ao seu amigo.' : 'Conectado. Aguardando imagem e som.' }));
-        if (room.viewer) send(room.host, JSON.stringify({ status: 'Seu amigo entrou na sala.' }));
+        if (room.viewer) {
+          room.waitingKeyframe = true; room.needsConfig = true; room.resetPending = false; room.resumeTimestamp = 0n;
+          send(room.host, JSON.stringify({ status: 'Seu amigo entrou na sala.' }));
+          requestKeyframe(room, true);
+        }
         return;
       }
       const room = rooms.get(key);
-      if (role === 'host' && binary && data.length >= 2 && [1,2].includes(data[0])) send(room?.viewer, data, true);
+      if (binary && data[0] === 7 && room?.[role] === ws) { forwardVoice(room, role, data); return; }
+      if (role === 'host' && binary && room?.host === ws && data.length >= 2) forwardMedia(room, data);
       if (!binary && data.length <= 2048 && room?.[role] === ws) {
         let msg;
         try { msg = JSON.parse(data.toString()); } catch { return; }
+        if (!msg || typeof msg !== 'object' || Array.isArray(msg)) return;
+        if (msg.type === 'talk') {
+          if (typeof msg.active !== 'boolean') return;
+          if (!msg.active) { if (room.talker === role) endTalk(room); return; }
+          if (room.talker) { send(ws, JSON.stringify({ type: 'talk', active: true, from: room.talker })); return; }
+          if (Date.now() - lastTalkStartAt < 250) { send(ws, JSON.stringify({ type: 'talk', active: false, from: role })); return; }
+          lastTalkStartAt = Date.now(); room.talker = role; room.voiceTokens = 64000; room.voiceUpdatedAt = lastTalkStartAt;
+          room.talkTimer = setTimeout(() => endTalk(room), talkTtlMs); room.talkTimer.unref();
+          broadcastTalk(room, true, role); return;
+        }
+        if (msg.type === 'request-keyframe') {
+          if (role === 'viewer') requestKeyframe(room);
+          return;
+        }
         if (msg.type !== 'chat' || typeof msg.text !== 'string') return;
         const text = msg.text.trim();
         if (!text || Array.from(text).length > 280 || Date.now() - lastChatAt < 250) return;
@@ -70,6 +180,7 @@ export function createRelay({ ttlMs = 2 * 60 * 60 * 1000 } = {}) {
       if (!joined) return;
       const room = rooms.get(key);
       if (!room || room[role] !== ws) return;
+      endTalk(room);
       room[role] = null;
       if (role === 'host') {
         clearTimeout(room.timer); rooms.delete(key); room.viewer?.close(1000, 'Transmissão encerrada');
@@ -84,7 +195,7 @@ export function createRelay({ ttlMs = 2 * 60 * 60 * 1000 } = {}) {
     server, rooms,
     async close() {
       clearInterval(heartbeat);
-      for (const room of rooms.values()) clearTimeout(room.timer);
+      for (const room of rooms.values()) { clearTimeout(room.timer); clearTimeout(room.talkTimer); }
       for (const ws of wss.clients) ws.terminate();
       await new Promise(resolve => wss.close(resolve));
       await new Promise(resolve => server.close(resolve));

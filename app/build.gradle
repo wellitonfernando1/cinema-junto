@@ -7,8 +7,8 @@ android {
         minSdk 29
         targetSdk 35
         testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
-        versionCode 4
-        versionName '0.4-teste'
+        versionCode 5
+        versionName '0.5-teste'
     }
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
