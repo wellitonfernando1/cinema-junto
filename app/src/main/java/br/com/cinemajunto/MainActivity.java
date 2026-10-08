@@ -37,12 +37,13 @@ public class MainActivity extends Activity {
     final ArrayDeque<String> chatLines = new ArrayDeque<>();
     final Handler ui = new Handler(Looper.getMainLooper());
     boolean fullscreen, unreadChat, imeVisible, keyboardSeen, chatOpen, destroyed;
-    int bannerSequence, playbackGeneration;
+    int bannerSequence;
+    volatile int playbackGeneration;
     String pendingEndpoint, pendingRoom, pendingPassword;
     boolean hostFlowPending;
-    final OkHttpClient client = new OkHttpClient.Builder().pingInterval(20, TimeUnit.SECONDS).build();
-    WebSocket socket;
-    volatile boolean watching;
+    OkHttpClient client = new OkHttpClient.Builder().pingInterval(20, TimeUnit.SECONDS).build();
+    volatile WebSocket socket;
+    volatile boolean watching, viewerJoined;
     PlaybackEngine playback;
     VoiceTalk voice;
     VoiceButton microphone;
@@ -73,7 +74,7 @@ public class MainActivity extends Activity {
         controls.setPadding(dp(16), dp(12), dp(16), dp(12)); controls.setBackgroundColor(0xfffafafa);
         setupScroll.addView(controls); mainLayout.addView(setupScroll, new LinearLayout.LayoutParams(-1, 0, 1));
         TextView title = new TextView(this); title.setTextColor(Color.BLACK); title.setText("Cinema Junto Chat Final"); title.setTextSize(24); controls.addView(title);
-        TextView subtitle = new TextView(this); subtitle.setTextColor(Color.BLACK); subtitle.setText("Filme, chat, microfone e senha simples · Versão 0.7"); controls.addView(subtitle);
+        TextView subtitle = new TextView(this); subtitle.setTextColor(Color.BLACK); subtitle.setText("Filme, chat, microfone e senha simples · Versão 0.8"); controls.addView(subtitle);
         endpoint = new EditText(this); endpoint.setSingleLine(true); endpoint.setHint("Endereço do servidor");
         readableInput(endpoint);
         endpoint.setText(getPreferences(0).getString("endpoint", "https://cinema-junto-welliton.onrender.com/")); controls.addView(endpoint);
@@ -114,6 +115,7 @@ public class MainActivity extends Activity {
         bannerPosition.setMargins(dp(10), dp(72), dp(10), 0); videoPane.addView(messageBanner, bannerPosition);
         messageBanner.setVisibility(View.GONE);
         microphone = new VoiceButton(this, this::pressVoice, () -> { if (voice != null) voice.release(); });
+        microphone.setEnabled(false);
         FrameLayout.LayoutParams micPosition = new FrameLayout.LayoutParams(dp(56), dp(56), Gravity.TOP | Gravity.RIGHT);
         micPosition.setMargins(dp(8), dp(8), dp(8), 0); videoPane.addView(microphone, micPosition);
         buildChatPanel(); setContentView(root); installInsets(); updateLayout();
@@ -247,7 +249,7 @@ public class MainActivity extends Activity {
         } else startService(new Intent(this, CaptureService.class).setAction("OPEN_CHAT"));
     }
     void pressVoice() {
-        if (!watching || voice == null) return;
+        if (!watching || !viewerJoined || voice == null) return;
         if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
             requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO}, 6); return;
         }
@@ -255,8 +257,8 @@ public class MainActivity extends Activity {
     }
     void startVoice() {
         voice = new VoiceTalk(this, "viewer", new VoiceTalk.Listener() {
-            public boolean sendText(String text) { WebSocket ws = socket; return watching && ws != null && ws.send(text); }
-            public boolean sendBinary(byte[] packet) { WebSocket ws = socket; return watching && ws != null && ws.queueSize() < 128*1024 && ws.send(ByteString.of(packet)); }
+            public boolean sendText(String text) { return sendViewerText(text); }
+            public boolean sendBinary(byte[] packet) { WebSocket ws = socket; return watching && viewerJoined && ws != null && ws.queueSize() < 128*1024 && ws.send(ByteString.of(packet)); }
             public void muteMovie(boolean muted) {
                 PlaybackEngine engine = playback; if (engine != null) engine.setFilmMuted(muted);
                 ui.post(() -> { if (microphone != null) microphone.setTalking(voice != null && voice.isTalking()); });
@@ -300,9 +302,14 @@ public class MainActivity extends Activity {
         resetChatIdle();
         String text = chatInput.getText().toString().trim(); if (text.isEmpty()) return;
         try {
-            if (watching && socket != null && socket.send(new JSONObject().put("type", "chat").put("text", text).toString())) chatInput.setText("");
+            if (sendViewerText(new JSONObject().put("type", "chat").put("text", text).toString())) chatInput.setText("");
             else show("Chat desconectado. Entre na sala novamente.");
         } catch (Exception e) { show("Não foi possível enviar a mensagem."); }
+    }
+    boolean sendViewerText(String text) {
+        WebSocket ws = socket;
+        // OkHttp queues sends while connecting. The room identification must be first.
+        return watching && viewerJoined && ws != null && ws.send(text);
     }
     void endSession() {
         closeChat(); stopViewer(); stopService(new Intent(this, CaptureService.class)); updateLayout(); show("Encerrado.");
@@ -450,7 +457,14 @@ public class MainActivity extends Activity {
                         else if ("chat".equals(msg.optString("type"))) receiveChat(msg.optString("from"), msg.optString("text"));
                         else if ("talk".equals(msg.optString("type")) && voice != null) voice.onControl(msg);
                         else if ("media-reset".equals(msg.optString("type")) && playback != null) playback.resetStream();
-                        else if (msg.has("status")) show(msg.optString("status"));
+                        else if (msg.has("status")) {
+                            if (msg.optBoolean("joined")) {
+                                ui.post(() -> {
+                                    if (watching && socket == ws) { viewerJoined = true; microphone.setEnabled(true); }
+                                });
+                            }
+                            show(msg.optString("status"));
+                        }
                     } catch (Exception ignored) {}
                 }
                 @Override public void onMessage(WebSocket ws, ByteString message) {
@@ -476,7 +490,7 @@ public class MainActivity extends Activity {
                 if (!destroyed && watching && generation == playbackGeneration) loading.setVisibility(value ? View.VISIBLE : View.GONE);
             }); }
             public void requestKeyFrame() {
-                WebSocket ws = socket; if (watching && ws != null) ws.send("{\"type\":\"request-keyframe\"}");
+                if (generation == playbackGeneration) sendViewerText("{\"type\":\"request-keyframe\"}");
             }
             public void error(String message) { ui.post(() -> {
                 if (!destroyed && watching && generation == playbackGeneration) { loading.setText(message); loading.setVisibility(View.VISIBLE); }
@@ -484,6 +498,8 @@ public class MainActivity extends Activity {
         });
     }
     void stopViewer() {
+        viewerJoined = false;
+        if (microphone != null) microphone.setEnabled(false);
         if (voice != null) { voice.close(); voice = null; }
         if (microphone != null) microphone.setTalking(false);
         watching = false; ++playbackGeneration; if (socket != null) { WebSocket old = socket; socket = null; old.cancel(); }
