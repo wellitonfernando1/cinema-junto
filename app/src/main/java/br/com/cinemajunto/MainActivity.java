@@ -74,7 +74,7 @@ public class MainActivity extends Activity {
         controls.setPadding(dp(16), dp(12), dp(16), dp(12)); controls.setBackgroundColor(0xfffafafa);
         setupScroll.addView(controls); mainLayout.addView(setupScroll, new LinearLayout.LayoutParams(-1, 0, 1));
         TextView title = new TextView(this); title.setTextColor(Color.BLACK); title.setText("Cinema Junto Chat Final"); title.setTextSize(24); controls.addView(title);
-        TextView subtitle = new TextView(this); subtitle.setTextColor(Color.BLACK); subtitle.setText("Filme, chat, microfone e senha simples · Versão 0.8"); controls.addView(subtitle);
+        TextView subtitle = new TextView(this); subtitle.setTextColor(Color.BLACK); subtitle.setText("Filme, chat, microfone e senha simples · Versão 0.9"); controls.addView(subtitle);
         endpoint = new EditText(this); endpoint.setSingleLine(true); endpoint.setHint("Endereço do servidor");
         readableInput(endpoint);
         endpoint.setText(getPreferences(0).getString("endpoint", "https://cinema-junto-welliton.onrender.com/")); controls.addView(endpoint);
@@ -86,14 +86,14 @@ public class MainActivity extends Activity {
         button(controls, "Transmitir minha tela e o som", () -> startHost());
         button(controls, "Compartilhar senha", () -> share());
         button(controls, "Assistir com a senha", () -> startViewer());
-        if (CaptureService.isHostChatAvailable()) button(controls, "Chat de quem transmite", () -> openHostChat());
+        button(controls, "Chat de quem transmite", () -> openHostChat());
         button(controls, "Encerrar", () -> endSession());
         status = new TextView(this); status.setTextColor(Color.BLACK); status.setText("Quem transmite cria uma senha. O amigo digita a mesma senha para entrar. Só dois aparelhos por sala."); controls.addView(status);
         TextView tip = new TextView(this);
         tip.setTextColor(Color.BLACK);
-        tip.setText(CaptureService.isHostChatAvailable()
-            ? "Escolha ‘Um app’ ao compartilhar para manter chat e teclado só no seu aparelho. Compartilhar a tela inteira também os envia."
-            : "O chat de quem transmite fica escondido neste Android para manter o filme livre de mensagens e teclado. Quem assiste pode usar o próprio chat."); controls.addView(tip);
+        tip.setText(CaptureService.supportsSingleAppSharing()
+            ? "Se houver a opção ‘Um app’, escolha o app do filme para manter chat e teclado só no seu aparelho. Compartilhar a tela inteira também os envia."
+            : "As mensagens aparecem no alto do filme nos dois aparelhos. Neste Android, o chat e o teclado de quem transmite também podem aparecer na imagem compartilhada."); controls.addView(tip);
         videoPane = new FrameLayout(this); mainLayout.addView(videoPane, new LinearLayout.LayoutParams(-1, 0, 1));
         screen = new FilmView(this); screen.setContentDescription("Filme compartilhado");
         videoPane.addView(screen, new FrameLayout.LayoutParams(-1, -1));
@@ -242,7 +242,6 @@ public class MainActivity extends Activity {
         showSystemBars(); setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED); updateLayout();
     }
     void openHostChat() {
-        if (!CaptureService.isHostChatAvailable()) { show("O chat de quem transmite fica escondido neste Android para manter a transmissão limpa."); return; }
         if (!CaptureService.active) { show("Inicie uma transmissão para usar o chat flutuante."); return; }
         if (!Settings.canDrawOverlays(this)) {
             startActivityForResult(new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:" + getPackageName())), 5);
@@ -286,7 +285,6 @@ public class MainActivity extends Activity {
     void updateChatButtons() { chatButton.setText(unreadChat ? "Chat •" : "Chat"); }
     void receiveChat(String from, String text) {
         if (text == null || text.isEmpty()) return;
-        if (CaptureService.active && !CaptureService.isHostChatAvailable()) return;
         String line = (("host".equals(from) && CaptureService.active) || ("viewer".equals(from) && watching) ? "Você: " : "Amigo: ") + text;
         ui.post(() -> {
             if (destroyed) return;
@@ -370,8 +368,8 @@ public class MainActivity extends Activity {
     void requestHostOverlay() {
         if (Settings.canDrawOverlays(this)) { requestScreen(); return; }
         hostFlowPending = false;
-        new AlertDialog.Builder(this).setTitle("Microfone sobre o filme")
-            .setMessage("Ative ‘Aparecer sobre outros apps’ para usar o botão ‘Segure para falar’ enquanto transmite. No Android 13 o chat continua escondido.")
+        new AlertDialog.Builder(this).setTitle("Chat e microfone sobre o filme")
+            .setMessage("Ative ‘Aparecer sobre outros apps’ para ler as mensagens, responder pelo Chat e segurar o microfone para falar enquanto transmite.")
             .setPositiveButton("Permitir botão flutuante", (dialog, which) -> {
                 try { hostFlowPending = true; startActivityForResult(new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:" + getPackageName())), 4); }
                 catch (Exception e) { hostFlowPending = false; show("Abra as configurações do Android e permita aparecer sobre outros apps."); }
@@ -381,10 +379,10 @@ public class MainActivity extends Activity {
     void requestScreen() {
         hostFlowPending = false;
         MediaProjectionManager pm = (MediaProjectionManager)getSystemService(MEDIA_PROJECTION_SERVICE);
-        String message = CaptureService.isHostChatAvailable()
-            ? "No próximo aviso, escolha ‘Um app’ e selecione o app do filme. Assim o chat flutuante e o teclado ficam só no seu aparelho. A opção ‘Tela inteira’ também os transmite."
-            : "O chat de quem transmite ficará escondido para não aparecer sobre o filme. Quem assiste mantém o próprio chat. Este Android compartilha a tela inteira: abra o filme e evite exibir outras informações pessoais durante a transmissão.";
-        new AlertDialog.Builder(this).setTitle("Compartilhar só o filme").setMessage(message)
+        String message = CaptureService.supportsSingleAppSharing()
+            ? "No próximo aviso, se houver a opção ‘Um app’, selecione o app do filme. Assim o chat flutuante e o teclado ficam só no seu aparelho. A opção ‘Tela inteira’ também os transmite."
+            : "As mensagens aparecerão no alto do filme para você também. Este Android compartilha a tela inteira, então o amigo também poderá ver seu chat e teclado. Abra o filme após autorizar a captura.";
+        new AlertDialog.Builder(this).setTitle("Compartilhar filme").setMessage(message)
             .setPositiveButton("Continuar", (dialog, which) -> {
                 try { hostFlowPending = true; startActivityForResult(pm.createScreenCaptureIntent(), 2); }
                 catch (Exception error) { hostFlowPending = false; show("Não foi possível pedir a captura. Tente novamente."); }

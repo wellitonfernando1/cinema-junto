@@ -4,6 +4,7 @@ import android.Manifest;
 import android.app.Instrumentation;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.content.pm.ResolveInfo;
 import android.os.Build;
 import android.os.SystemClock;
 import android.provider.Settings;
@@ -13,6 +14,7 @@ import androidx.test.platform.app.InstrumentationRegistry;
 import androidx.test.uiautomator.By;
 import androidx.test.uiautomator.UiDevice;
 import androidx.test.uiautomator.UiObject2;
+import androidx.test.uiautomator.Until;
 import java.io.File;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
@@ -29,7 +31,7 @@ import org.junit.runner.Description;
 import org.junit.runner.RunWith;
 import static org.junit.Assert.*;
 
-/** Smoke test of the real MediaProjection surface and concurrent playback/microphone capture. */
+/** Real MediaProjection, concurrent playback/microphone capture, and relayed chat over another app. */
 @RunWith(AndroidJUnit4.class)
 public class SourceCaptureTest {
     Instrumentation instrumentation;
@@ -42,6 +44,7 @@ public class SourceCaptureTest {
     final AtomicReference<Throwable> failure = new AtomicReference<>();
     final AtomicReference<StreamPacket.VideoConfig> format = new AtomicReference<>();
     final AtomicReference<StreamPacket.Packet> lastVoice = new AtomicReference<>();
+    final AtomicReference<String> lastChatEcho = new AtomicReference<>();
     final String viewerDevice = UUID.randomUUID().toString();
     boolean evidenceSaved;
 
@@ -144,7 +147,9 @@ public class SourceCaptureTest {
             @Override public void onMessage(WebSocket socket, String text) {
                 try {
                     JSONObject message = new JSONObject(text);
-                    if (message.has("status")) joined.set(true);
+                    if (message.optBoolean("joined")) joined.set(true);
+                    if ("chat".equals(message.optString("type")) && "viewer".equals(message.optString("from")))
+                        lastChatEcho.set(message.optString("text"));
                     if ("talk".equals(message.optString("type")) && "host".equals(message.optString("from")))
                         hostTalking.set(message.optBoolean("active"));
                 } catch (Exception error) { failure.compareAndSet(null, error); }
@@ -204,5 +209,32 @@ public class SourceCaptureTest {
         main(() -> activity.startService(new Intent(activity, CaptureService.class).setAction("VOICE_RELEASE")));
         until("Releasing the host microphone did not end its voice turn", 3000, () -> !hostTalking.get());
         assertTrue("Releasing voice ended the movie transmission", CaptureService.active);
+
+        ResolveInfo home = activity.getPackageManager().resolveActivity(
+            new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME), PackageManager.MATCH_DEFAULT_ONLY);
+        assertNotNull("The emulator must have a home application", home);
+        String homePackage = home.activityInfo.packageName;
+        assertNotEquals("The chat must be checked over another application", activity.getPackageName(), homePackage);
+        assertTrue("Could not leave Cinema Junto for the real home application", device.pressHome());
+        until("The home application did not appear under the capture overlays", 4000,
+            () -> device.hasObject(By.pkg(homePackage)));
+        until("The capture service's compact chat button is missing over the home application", 3000,
+            () -> device.hasObject(By.desc("Abrir chat flutuante")));
+
+        int framesBeforeChat = frames.get(), pcmBeforeChat = pcm.get();
+        String chatText = "Oi, estou vendo o filme";
+        String bannerDescription = "Mensagem no topo: Amigo: " + chatText;
+        assertTrue("The existing viewer could not queue its message",
+            viewer.send(new JSONObject().put("type", "chat").put("text", chatText).toString()));
+        until("The relayed viewer message did not appear above the home application while media continued", 5000,
+            () -> chatText.equals(lastChatEcho.get()) && device.hasObject(By.desc(bannerDescription))
+                && frames.get() > framesBeforeChat && pcm.get() > pcmBeforeChat);
+        assertTrue("Receiving a floating message ended the movie transmission", CaptureService.active);
+
+        main(() -> activity.endSession());
+        assertTrue("Stopping capture did not remove its floating message",
+            device.wait(Until.gone(By.desc(bannerDescription)), 3000));
+        assertTrue("Stopping capture did not remove its compact chat button",
+            device.wait(Until.gone(By.desc("Abrir chat flutuante")), 3000));
     }
 }

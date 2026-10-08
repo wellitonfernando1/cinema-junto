@@ -26,7 +26,7 @@ import org.json.JSONObject;
 
 public class CaptureService extends Service {
     public static volatile boolean active, starting;
-    public static boolean isHostChatAvailable() { return Build.VERSION.SDK_INT >= 34; }
+    public static boolean supportsSingleAppSharing() { return Build.VERSION.SDK_INT >= 34; }
     volatile boolean running, connected;
     volatile WebSocket socket;
     OkHttpClient client;
@@ -61,8 +61,6 @@ public class CaptureService extends Service {
     };
     void status(String text) { sendBroadcast(new Intent(getPackageName()+".STATUS").setPackage(getPackageName()).putExtra("status", text)); }
     void chat(String from, String text) {
-        // Older Android versions capture the entire display, including our floating chat.
-        if (!isHostChatAvailable()) return;
         sendBroadcast(new Intent(getPackageName()+".STATUS").setPackage(getPackageName())
             .putExtra("from", from).putExtra("chat", text));
         main.post(() -> { if (running && overlay != null) overlay.receive(from, text); });
@@ -126,10 +124,6 @@ public class CaptureService extends Service {
             return START_NOT_STICKY;
         }
         if ("OPEN_CHAT".equals(intent.getAction())) {
-            if (!isHostChatAvailable()) {
-                status("O chat de quem transmite fica oculto neste Android para não aparecer no filme. Chat privado ao transmitir requer Android 14 ou superior e compartilhar apenas um app.");
-                return START_NOT_STICKY;
-            }
             if (running) { if (overlay == null) overlay = new HostChatOverlay(this, this::sendChat); overlay.open(); }
             return START_NOT_STICKY;
         }
@@ -147,18 +141,16 @@ public class CaptureService extends Service {
             PendingIntent open = PendingIntent.getActivity(this, 2, new Intent(this, MainActivity.class), PendingIntent.FLAG_IMMUTABLE);
             Notification.Builder notification = new Notification.Builder(this, "transmissao")
                 .setSmallIcon(android.R.drawable.ic_menu_view).setContentTitle("Cinema Junto: tela e som compartilhados")
-                .setContentText(isHostChatAvailable() ? "Segure o botão de voz para conversar. Chat privado com um app." : "Segure o botão de voz para conversar. Seu chat fica oculto.")
+                .setContentText("Segure o microfone para falar. Toque em Chat para responder.")
                 .setContentIntent(open).setOngoing(true);
-            if (isHostChatAvailable()) {
-                PendingIntent openChat = PendingIntent.getService(this, 3, new Intent(this, CaptureService.class).setAction("OPEN_CHAT"), PendingIntent.FLAG_IMMUTABLE);
-                notification.addAction(android.R.drawable.ic_menu_send, "Chat", openChat);
-            }
+            PendingIntent openChat = PendingIntent.getService(this, 3, new Intent(this, CaptureService.class).setAction("OPEN_CHAT"), PendingIntent.FLAG_IMMUTABLE);
+            notification.addAction(android.R.drawable.ic_menu_send, "Chat", openChat);
             Notification n = notification.addAction(android.R.drawable.ic_media_pause, "Encerrar", stop).build();
             int serviceTypes = ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION;
             if (Build.VERSION.SDK_INT >= 30) serviceTypes |= ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE;
             startForeground(1, n, serviceTypes);
             running = true;
-            if (isHostChatAvailable()) { overlay = new HostChatOverlay(this, this::sendChat); overlay.show(); }
+            overlay = new HostChatOverlay(this, this::sendChat); overlay.show();
             MediaProjectionManager manager = getSystemService(MediaProjectionManager.class);
             Intent consent = intent.getParcelableExtra("data");
             projection = manager.getMediaProjection(intent.getIntExtra("result", -1), consent);

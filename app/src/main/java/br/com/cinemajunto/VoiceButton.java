@@ -24,8 +24,8 @@ final class VoiceButton extends ImageButton {
         setImageResource(R.drawable.ic_microphone); setScaleType(ScaleType.CENTER_INSIDE);
         setImageTintList(ColorStateList.valueOf(0xffffffff));
         StateListDrawable background = new StateListDrawable();
-        background.addState(new int[]{android.R.attr.state_selected}, circle(0xffb71c1c));
-        background.addState(new int[]{android.R.attr.state_pressed}, circle(0xffb71c1c));
+        background.addState(new int[]{android.R.attr.state_selected}, circle(0xff1976d2));
+        background.addState(new int[]{android.R.attr.state_pressed}, circle(0xff1976d2));
         background.addState(new int[]{}, circle(0xffe53935));
         setBackground(background); setBackgroundTintList(null);
         setElevation(4 * getResources().getDisplayMetrics().density); setTalking(false);

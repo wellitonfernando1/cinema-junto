@@ -8,7 +8,6 @@ import android.content.res.Configuration;
 import android.graphics.Color;
 import android.graphics.drawable.ColorDrawable;
 import android.os.SystemClock;
-import android.os.Build;
 import android.provider.Settings;
 import android.widget.Button;
 import android.widget.EditText;
@@ -131,8 +130,7 @@ public class ChatIdleTest {
                         && "Chat de quem transmite".contentEquals(((Button)activity.controls.getChildAt(i)).getText()))
                     hostChatButton = true;
             }
-            assertEquals("Host chat must stay hidden on Android without selective app capture",
-                Build.VERSION.SDK_INT >= 34, hostChatButton);
+            assertTrue("Host chat must be available on every supported Android version", hostChatButton);
         });
     }
 
