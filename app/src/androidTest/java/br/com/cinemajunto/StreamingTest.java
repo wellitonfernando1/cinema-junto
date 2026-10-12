@@ -219,15 +219,20 @@ public class StreamingTest {
         video(engine, movie, 0, 600, START_US);
         Thread.sleep(150);
         assertTrue("Playback started without the expanded jitter reserve", engine.buffering);
-        audio(engine, 600, 800, START_US);
-        video(engine, movie, 600, 800, START_US);
-        until("Playback never started with the full reserve", 5000, () -> !engine.buffering);
+        audio(engine, 600, 1000, START_US);
+        video(engine, movie, 600, 1000, START_US);
+        until("Playback never started with the full reserve", 5000,
+            () -> !engine.buffering && engine.renderedFrames >= 2);
+        // Let the hardware decoder finish its initial startup before measuring steady playback.
+        audio(engine, 0, 400, START_US + 1_000_000L);
+        video(engine, movie, 0, 400, START_US + 1_000_000L);
         long before = engine.clockUs();
+        long framesBefore = engine.renderedFrames;
         // Stop delivering packets briefly, as happens with Wi-Fi jitter.
         Thread.sleep(550);
         assertFalse("A brief delivery pause exhausted the reserve", engine.buffering);
         assertTrue("The movie clock froze during network jitter", engine.clockUs() > before + 400000);
-        assertTrue("AVC frames were not rendered during network jitter", engine.renderedFrames > 5);
+        assertTrue("AVC frames were not rendered during network jitter", engine.renderedFrames > framesBefore);
     }
 
     @Test public void realAvcWaitsForBufferTracksAudioAndSurvivesFullscreenStarvation() throws Exception {
