@@ -7,8 +7,8 @@ android {
         minSdk 29
         targetSdk 35
         testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
-        versionCode 9
-        versionName '0.9-teste'
+        versionCode 10
+        versionName '0.10-audio'
     }
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
@@ -22,3 +22,4 @@ dependencies {
     androidTestImplementation 'androidx.test.ext:junit:1.2.1'
     androidTestImplementation 'androidx.test.uiautomator:uiautomator:2.3.0'
 }
+

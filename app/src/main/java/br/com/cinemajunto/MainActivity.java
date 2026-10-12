@@ -60,6 +60,7 @@ public class MainActivity extends Activity {
 
     @Override public void onCreate(Bundle saved) {
         super.onCreate(saved);
+        setVolumeControlStream(android.media.AudioManager.STREAM_MUSIC);
         if (saved != null) {
             pendingEndpoint = saved.getString("pendingEndpoint"); pendingRoom = saved.getString("pendingRoom");
             pendingPassword = saved.getString("pendingPassword"); hostFlowPending = saved.getBoolean("hostFlowPending");
@@ -515,3 +516,4 @@ public class MainActivity extends Activity {
     @Override protected void onDestroy() { destroyed = true; stopViewer(); ui.removeCallbacksAndMessages(null); unregisterReceiver(messages); client.dispatcher().executorService().shutdown(); super.onDestroy(); }
     @Override protected void onPause() { if (voice != null) voice.release(); super.onPause(); }
 }
+

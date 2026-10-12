@@ -20,5 +20,8 @@ adb shell settings put secure show_ime_with_hard_keyboard 1
 adb shell settings put secure immersive_mode_confirmations confirmed
 # Fresh emulators still finish applying theme assets after reporting boot completion.
 sleep 10
+adb shell am instrument -w -r -e class br.com.cinemajunto.VoiceTest br.com.cinemajunto.test/androidx.test.runner.AndroidJUnitRunner | tee ui-results/voice-test-output.txt
+grep -Eq 'OK \([0-9]+ tests\)' ui-results/voice-test-output.txt
 adb shell am instrument -w -r br.com.cinemajunto.test/androidx.test.runner.AndroidJUnitRunner | tee ui-results/test-output.txt
 grep -Eq 'OK \([0-9]+ tests\)' ui-results/test-output.txt
+

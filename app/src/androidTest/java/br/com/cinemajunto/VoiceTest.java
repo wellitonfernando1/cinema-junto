@@ -7,6 +7,9 @@ import android.content.pm.ActivityInfo;
 import android.content.pm.PackageManager;
 import android.content.res.Configuration;
 import android.os.SystemClock;
+import android.media.AudioAttributes;
+import android.media.AudioManager;
+import android.media.AudioTrack;
 import android.view.MotionEvent;
 import android.widget.FrameLayout;
 import androidx.test.ext.junit.runners.AndroidJUnit4;
@@ -91,6 +94,28 @@ public class VoiceTest {
         MotionEvent event = MotionEvent.obtain(now, now, action, 30, 20, 0);
         try { assertTrue(button.onTouchEvent(event)); }
         finally { event.recycle(); }
+    }
+
+    @Test public void receivedVoiceUsesMediaVolumeForBothRolesAndReleasesPlayer() throws Exception {
+        assertEquals(AudioManager.STREAM_MUSIC, activity.getVolumeControlStream());
+        for (String role : new String[]{"viewer", "host"}) {
+            FakeListener listener = new FakeListener();
+            VoiceTalk talk = talk(role, listener);
+            until("Voice player was not initialized", 3000, () -> talk.playbackTrack != null);
+            AudioTrack track = talk.playbackTrack;
+            AudioAttributes attributes = track.getAudioAttributes();
+            assertEquals("Voice must not use the quiet call stream", AudioAttributes.USAGE_MEDIA, attributes.getUsage());
+            assertEquals(AudioManager.STREAM_MUSIC, attributes.getVolumeControlStream());
+            assertEquals(AudioAttributes.CONTENT_TYPE_SPEECH, attributes.getContentType());
+            talk.onControl(control("host".equals(role) ? "viewer" : "host", true));
+            talk.onAudio(StreamPacket.pack(7, 1_000_000L, 0, new byte[640]));
+            until("Incoming voice did not start playback", 3000, () -> track.getPlayState() == AudioTrack.PLAYSTATE_PLAYING);
+            talk.close();
+            until("Voice player survived disconnect", 1000, () -> !talk.player.isAlive());
+            assertNull(talk.playbackTrack);
+            assertFalse(listener.muted.get());
+            assertTrue("Voice audio failed: " + listener.errors, listener.errors.isEmpty());
+        }
     }
 
     @Test public void buttonReleasesOnCancelUpAndDetach() {
@@ -178,3 +203,4 @@ public class VoiceTest {
         until("Voice player survived disconnect", 1000, () -> !talk.player.isAlive());
     }
 }
+

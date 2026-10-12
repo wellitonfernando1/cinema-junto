@@ -32,6 +32,7 @@ final class VoiceTalk implements AutoCloseable {
     boolean held, pending;
     long generation;
     volatile AudioRecord microphone;
+    volatile AudioTrack playbackTrack;
     Thread capture;
     final Runnable pendingTimeout = this::handlePendingTimeout;
     final Runnable maximumHold = this::handleMaximumHold;
@@ -241,11 +242,15 @@ final class VoiceTalk implements AutoCloseable {
             int minimum = AudioTrack.getMinBufferSize(RATE, AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_16BIT);
             if (minimum <= 0) throw new IllegalStateException("Áudio indisponível");
             track = new AudioTrack.Builder()
-                .setAudioAttributes(new AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
+                // Half-duplex speech follows the movie's media route and volume, including headphones.
+                // VOICE_COMMUNICATION uses the call stream and can select the quiet earpiece.
+                .setAudioAttributes(new AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA)
                     .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build())
                 .setAudioFormat(new AudioFormat.Builder().setSampleRate(RATE)
                     .setChannelMask(AudioFormat.CHANNEL_OUT_MONO).setEncoding(AudioFormat.ENCODING_PCM_16BIT).build())
                 .setTransferMode(AudioTrack.MODE_STREAM).setBufferSizeInBytes(Math.max(minimum, CHUNK_BYTES * 4)).build();
+            if (track.getState() != AudioTrack.STATE_INITIALIZED) throw new IllegalStateException("Áudio indisponível");
+            playbackTrack = track;
             boolean playing = false;
             while (!closed && !Thread.currentThread().isInterrupted()) {
                 byte[] packet = voice.poll(100, TimeUnit.MILLISECONDS);
@@ -266,6 +271,7 @@ final class VoiceTalk implements AutoCloseable {
         } catch (Exception error) {
             if (!closed) listener.error("Não foi possível ouvir a voz. Entre na sala novamente.");
         } finally {
+            playbackTrack = null;
             if (track != null) { try { track.stop(); } catch (Exception ignored) {} track.release(); }
             voice.clear();
         }
@@ -279,3 +285,4 @@ final class VoiceTalk implements AutoCloseable {
         listener.muteMovie(false);
     }
 }
+
