@@ -211,6 +211,25 @@ public class StreamingTest {
         fail(message + ": " + Integer.toHexString(lastColor));
     }
 
+    @Test public void playbackAbsorbsHalfSecondNetworkJitterWithoutStopping() throws Exception {
+        EncodedMovie movie = encodeGreenMovie();
+        PlaybackEngine engine = startMovie();
+        engine.offer(StreamPacket.pack(StreamPacket.AVC_CONFIG, START_US, 0, movie.config));
+        audio(engine, 0, 600, START_US);
+        video(engine, movie, 0, 600, START_US);
+        Thread.sleep(150);
+        assertTrue("Playback started without the expanded jitter reserve", engine.buffering);
+        audio(engine, 600, 800, START_US);
+        video(engine, movie, 600, 800, START_US);
+        until("Playback never started with the full reserve", 5000, () -> !engine.buffering);
+        long before = engine.clockUs();
+        // Stop delivering packets briefly, as happens with Wi-Fi jitter.
+        Thread.sleep(550);
+        assertFalse("A brief delivery pause exhausted the reserve", engine.buffering);
+        assertTrue("The movie clock froze during network jitter", engine.clockUs() > before + 400000);
+        assertTrue("AVC frames were not rendered during network jitter", engine.renderedFrames > 5);
+    }
+
     @Test public void realAvcWaitsForBufferTracksAudioAndSurvivesFullscreenStarvation() throws Exception {
         EncodedMovie movie = encodeGreenMovie();
         PlaybackEngine engine = startMovie();

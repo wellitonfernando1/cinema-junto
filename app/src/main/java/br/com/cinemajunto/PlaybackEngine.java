@@ -10,7 +10,7 @@ import java.util.concurrent.ArrayBlockingQueue;
 /** Bounded receiver buffer. The audio actually played by the device is the video clock. */
 final class PlaybackEngine implements AutoCloseable {
     static final int RATE = 44100;
-    static final long PRELOAD_US = 450000, MAX_BACKLOG_US = 1500000;
+    static final long PRELOAD_US = 800000, MAX_BACKLOG_US = 1500000;
     interface Listener {
         void buffering(boolean value);
         void requestKeyFrame();
