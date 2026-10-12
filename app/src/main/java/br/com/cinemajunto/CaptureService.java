@@ -84,7 +84,11 @@ public class CaptureService extends Service {
         voice = new VoiceTalk(this, "host", new VoiceTalk.Listener() {
             public boolean sendText(String text) { return sendVoiceText(text); }
             public boolean sendBinary(byte[] packet) { return sendVoiceAudio(packet); }
-            public void muteMovie(boolean muted) { setMovieMuted(muted); }
+            public void muteMovie(boolean muted) {
+                // Incoming speech shares STREAM_MUSIC. Only mute the source film for our own turn.
+                VoiceTalk talk = voice;
+                setMovieMuted(muted && (talk == null || !talk.peerTalking));
+            }
             public void error(String text) { status(text); }
         });
         if (!Settings.canDrawOverlays(this)) {

@@ -107,6 +107,8 @@ public class VoiceTest {
             assertEquals("Voice must not use the quiet call stream", AudioAttributes.USAGE_MEDIA, attributes.getUsage());
             assertEquals(AudioManager.STREAM_MUSIC, attributes.getVolumeControlStream());
             assertEquals(AudioAttributes.CONTENT_TYPE_SPEECH, attributes.getContentType());
+            assertEquals("Incoming speech must not be captured and echoed back with the movie",
+                AudioAttributes.ALLOW_CAPTURE_BY_NONE, attributes.getAllowedCapturePolicy());
             talk.onControl(control("host".equals(role) ? "viewer" : "host", true));
             talk.onAudio(StreamPacket.pack(7, 1_000_000L, 0, new byte[640]));
             until("Incoming voice did not start playback", 3000, () -> track.getPlayState() == AudioTrack.PLAYSTATE_PLAYING);

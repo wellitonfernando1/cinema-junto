@@ -245,7 +245,8 @@ final class VoiceTalk implements AutoCloseable {
                 // Half-duplex speech follows the movie's media route and volume, including headphones.
                 // VOICE_COMMUNICATION uses the call stream and can select the quiet earpiece.
                 .setAudioAttributes(new AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA)
-                    .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build())
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                    .setAllowedCapturePolicy(AudioAttributes.ALLOW_CAPTURE_BY_NONE).build())
                 .setAudioFormat(new AudioFormat.Builder().setSampleRate(RATE)
                     .setChannelMask(AudioFormat.CHANNEL_OUT_MONO).setEncoding(AudioFormat.ENCODING_PCM_16BIT).build())
                 .setTransferMode(AudioTrack.MODE_STREAM).setBufferSizeInBytes(Math.max(minimum, CHUNK_BYTES * 4)).build();

@@ -1,6 +1,7 @@
 package br.com.cinemajunto;
 
 import android.Manifest;
+import android.media.AudioManager;
 import android.app.Instrumentation;
 import android.content.Intent;
 import android.content.pm.PackageManager;
@@ -42,13 +43,15 @@ public class SourceCaptureTest {
     WebSocket viewer;
     final OkHttpClient client = new OkHttpClient.Builder().connectTimeout(6, TimeUnit.SECONDS).build();
     final AtomicInteger configs = new AtomicInteger(), frames = new AtomicInteger(), pcm = new AtomicInteger(), voice = new AtomicInteger();
-    final AtomicBoolean joined = new AtomicBoolean(), hostTalking = new AtomicBoolean();
+    final AtomicBoolean joined = new AtomicBoolean(), hostTalking = new AtomicBoolean(), viewerTalking = new AtomicBoolean();
     final AtomicReference<Throwable> failure = new AtomicReference<>();
     final AtomicReference<StreamPacket.VideoConfig> format = new AtomicReference<>();
     final AtomicReference<StreamPacket.Packet> lastVoice = new AtomicReference<>();
     final AtomicReference<String> lastChatEcho = new AtomicReference<>();
     final String viewerDevice = UUID.randomUUID().toString();
     boolean evidenceSaved;
+    AudioManager audioManager;
+    int originalMediaVolume;
 
     @Rule public final TestWatcher evidence = new TestWatcher() {
         @Override protected void failed(Throwable error, Description description) {
@@ -126,11 +129,16 @@ public class SourceCaptureTest {
         device = UiDevice.getInstance(instrumentation);
         Intent intent = new Intent(instrumentation.getTargetContext(), MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
         activity = (MainActivity)instrumentation.startActivitySync(intent);
+        audioManager = activity.getSystemService(AudioManager.class);
+        originalMediaVolume = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC);
+        audioManager.setStreamVolume(AudioManager.STREAM_MUSIC,
+            Math.max(1, audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC) / 2), 0);
     }
 
     @After public void close() {
         if (activity != null) main(() -> { activity.endSession(); activity.finish(); });
         if (viewer != null) viewer.cancel();
+        if (audioManager != null) audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, originalMediaVolume, 0);
         client.dispatcher().executorService().shutdown(); client.connectionPool().evictAll();
     }
 
@@ -187,6 +195,8 @@ public class SourceCaptureTest {
                         lastChatEcho.set(message.optString("text"));
                     if ("talk".equals(message.optString("type")) && "host".equals(message.optString("from")))
                         hostTalking.set(message.optBoolean("active"));
+                    if ("talk".equals(message.optString("type")) && "viewer".equals(message.optString("from")))
+                        viewerTalking.set(message.optBoolean("active"));
                 } catch (Exception error) { failure.compareAndSet(null, error); }
             }
             @Override public void onMessage(WebSocket socket, ByteString data) {
@@ -245,6 +255,30 @@ public class SourceCaptureTest {
         main(() -> activity.startService(new Intent(activity, CaptureService.class).setAction("VOICE_RELEASE")));
         until("Releasing the host microphone did not end its voice turn", 3000, () -> !hostTalking.get());
         assertTrue("Releasing voice ended the movie transmission", CaptureService.active);
+
+        until("Host release did not restore media volume", 3000,
+            () -> audioManager.getStreamVolume(AudioManager.STREAM_MUSIC) > 0);
+        int listeningVolume = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC);
+        assertTrue(viewer.send(new JSONObject().put("type", "talk").put("active", true).toString()));
+        until("Viewer did not receive the voice turn", 3000, viewerTalking::get);
+        byte[] receivedSpeech = new byte[640];
+        for (int i = 0; i < 320; i++) {
+            short sample = (short)(6000 * Math.sin(2 * Math.PI * 440 * i / 16000));
+            receivedSpeech[i * 2] = (byte)sample;
+            receivedSpeech[i * 2 + 1] = (byte)(sample >> 8);
+        }
+        for (int i = 0; i < 25; i++) {
+            assertTrue(viewer.send(ByteString.of(StreamPacket.pack(7,
+                SystemClock.elapsedRealtimeNanos() / 1000L, 0, receivedSpeech))));
+            Thread.sleep(20);
+            instrumentation.waitForIdleSync();
+            assertEquals("Receiving the viewer's voice muted the host speaker", listeningVolume,
+                audioManager.getStreamVolume(AudioManager.STREAM_MUSIC));
+        }
+        assertTrue("Receiving voice stopped the movie transmission", CaptureService.active);
+        assertTrue(viewer.send(new JSONObject().put("type", "talk").put("active", false).toString()));
+        until("Viewer voice turn did not end", 3000, () -> !viewerTalking.get());
+        assertEquals(listeningVolume, audioManager.getStreamVolume(AudioManager.STREAM_MUSIC));
 
         assertTrue("Could not leave Cinema Junto for the real home application", device.pressHome());
         until("The home application did not appear under the capture overlays", 4000,
