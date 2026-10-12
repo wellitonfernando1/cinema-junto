@@ -7,7 +7,7 @@ import android.widget.FrameLayout;
 
 /** Draws the current frame at the current viewport size, including after rotation and IME resize. */
 public class FilmView extends FrameLayout {
-    private final TextureView texture;
+    private final SurfaceView texture;
     private final Poster poster;
     private volatile Surface surface;
     private volatile int surfaceGeneration;
@@ -17,21 +17,21 @@ public class FilmView extends FrameLayout {
 
     public FilmView(Context context) {
         super(context); setFocusable(true); setBackgroundColor(Color.BLACK);
-        texture = new TextureView(context); texture.setOpaque(false);
+        texture = new SurfaceView(context);
         addView(texture, new FrameLayout.LayoutParams(-1, -1));
         poster = new Poster(context); addView(poster, new FrameLayout.LayoutParams(-1, -1));
-        texture.setSurfaceTextureListener(new TextureView.SurfaceTextureListener() {
-            public void onSurfaceTextureAvailable(SurfaceTexture t, int w, int h) {
-                surface = new Surface(t); surfaceGeneration++; transform();
+        texture.getHolder().addCallback(new SurfaceHolder.Callback() {
+            public void surfaceCreated(SurfaceHolder holder) {
+                surface = holder.getSurface(); surfaceGeneration++; transform();
             }
-            public void onSurfaceTextureSizeChanged(SurfaceTexture t, int w, int h) { transform(); }
-            public boolean onSurfaceTextureDestroyed(SurfaceTexture t) {
-                Surface old = surface; surface = null; surfaceGeneration++;
-                if (old != null) old.release(); return true;
-            }
-            public void onSurfaceTextureUpdated(SurfaceTexture t) { videoFrame = true; }
+            public void surfaceChanged(SurfaceHolder holder, int format, int w, int h) { transform(); }
+            public void surfaceDestroyed(SurfaceHolder holder) { surface = null; surfaceGeneration++; }
         });
     }
+    @Override protected void onSizeChanged(int w, int h, int ow, int oh) {
+        super.onSizeChanged(w, h, ow, oh); transform();
+    }
+    void markVideoFrame() { videoFrame = true; }
     Surface decoderSurface() { return surface; }
     int surfaceGeneration() { return surfaceGeneration; }
     void setVideoSize(int w, int h) {
@@ -42,12 +42,13 @@ public class FilmView extends FrameLayout {
     void setZoom(boolean enabled) { zoom = enabled; transform(); poster.invalidate(); }
     boolean hasFrame() { return videoFrame || (poster.frame != null && !poster.frame.isRecycled()); }
     private void transform() {
-        float vw = texture.getWidth(), vh = texture.getHeight();
+        float vw = getWidth(), vh = getHeight();
         if (vw == 0 || vh == 0 || videoWidth == 0 || videoHeight == 0) return;
         float scale = zoom ? Math.max(vw / videoWidth, vh / videoHeight) : Math.min(vw / videoWidth, vh / videoHeight);
-        Matrix matrix = new Matrix();
-        matrix.setScale(videoWidth * scale / vw, videoHeight * scale / vh, vw / 2, vh / 2);
-        texture.setTransform(matrix);
+        int w = Math.max(1, Math.round(videoWidth * scale)), h = Math.max(1, Math.round(videoHeight * scale));
+        FrameLayout.LayoutParams old = (FrameLayout.LayoutParams)texture.getLayoutParams();
+        if (old.width != w || old.height != h || old.gravity != Gravity.CENTER)
+            texture.setLayoutParams(new FrameLayout.LayoutParams(w, h, Gravity.CENTER));
     }
     private final class Poster extends View {
         Bitmap frame;

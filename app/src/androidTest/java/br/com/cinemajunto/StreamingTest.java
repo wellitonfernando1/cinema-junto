@@ -25,7 +25,7 @@ import static org.junit.Assert.*;
 /** Exercises an actual AVC encoder, decoder surface, PCM clock and playback buffer. */
 @RunWith(AndroidJUnit4.class)
 public class StreamingTest {
-    static final int WIDTH = 160, HEIGHT = 96, FPS = 24;
+    static final int WIDTH = 160, HEIGHT = 96, FPS = 60, SECONDS = 6;
     static final long START_US = 1_000_000L;
     Instrumentation instrumentation;
     MainActivity activity;
@@ -116,7 +116,7 @@ public class StreamingTest {
                 if (!inputEnded) {
                     int index = encoder.dequeueInputBuffer(1000);
                     if (index >= 0) {
-                        if (submitted < FPS) {
+                        if (submitted < FPS * SECONDS) {
                             Image image = encoder.getInputImage(index);
                             assertNotNull("AVC encoder did not provide flexible YUV input", image);
                             assertEquals(3, image.getPlanes().length);
@@ -127,7 +127,7 @@ public class StreamingTest {
                                 START_US + submitted * 1_000_000L / FPS, 0);
                             submitted++;
                         } else {
-                            encoder.queueInputBuffer(index, 0, 0, START_US + 1_000_000L,
+                            encoder.queueInputBuffer(index, 0, 0, START_US + SECONDS * 1_000_000L,
                                 MediaCodec.BUFFER_FLAG_END_OF_STREAM);
                             inputEnded = true;
                         }
@@ -151,7 +151,7 @@ public class StreamingTest {
             }
             assertTrue("AVC encoder failed to finish one second of video", outputEnded);
             assertNotNull("AVC encoder did not publish SPS/PPS", movie.config);
-            assertEquals("AVC encoder lost input frames", FPS, movie.frames.size());
+            assertEquals("AVC encoder lost input frames", FPS * SECONDS, movie.frames.size());
             movie.frames.sort(Comparator.comparingLong(frame -> frame.timestampUs));
             assertTrue("First AVC frame must be a decoder entry point",
                 (movie.frames.get(0).flags & MediaCodec.BUFFER_FLAG_KEY_FRAME) != 0);
@@ -211,28 +211,29 @@ public class StreamingTest {
         fail(message + ": " + Integer.toHexString(lastColor));
     }
 
-    @Test public void playbackAbsorbsHalfSecondNetworkJitterWithoutStopping() throws Exception {
+    @Test public void playbackAbsorbsTwoSecondNetworkPauseWithSmoothFrameScheduling() throws Exception {
         EncodedMovie movie = encodeGreenMovie();
         PlaybackEngine engine = startMovie();
         engine.offer(StreamPacket.pack(StreamPacket.AVC_CONFIG, START_US, 0, movie.config));
-        audio(engine, 0, 600, START_US);
-        video(engine, movie, 0, 600, START_US);
-        Thread.sleep(150);
-        assertTrue("Playback started without the expanded jitter reserve", engine.buffering);
-        audio(engine, 600, 1000, START_US);
-        video(engine, movie, 600, 1000, START_US);
-        until("Playback never started with the full reserve", 5000,
-            () -> !engine.buffering && engine.renderedFrames >= 2);
-        // Let the hardware decoder finish its initial startup before measuring steady playback.
-        audio(engine, 0, 400, START_US + 1_000_000L);
-        video(engine, movie, 0, 400, START_US + 1_000_000L);
+        audio(engine, 0, 2000, START_US);
+        video(engine, movie, 0, 2000, START_US);
+        Thread.sleep(200);
+        assertTrue("Two seconds must remain buffered before playback", engine.buffering);
+        audio(engine, 2000, 6000, START_US);
+        video(engine, movie, 2000, 6000, START_US);
+        until("Playback did not start with the multi-second reserve", 7000,
+            () -> !engine.buffering && engine.renderedFrames >= 5);
         long before = engine.clockUs();
         long framesBefore = engine.renderedFrames;
-        // Stop delivering packets briefly, as happens with Wi-Fi jitter.
-        Thread.sleep(550);
-        assertFalse("A brief delivery pause exhausted the reserve", engine.buffering);
-        assertTrue("The movie clock froze during network jitter", engine.clockUs() > before + 400000);
-        assertTrue("AVC frames were not rendered during network jitter", engine.renderedFrames > framesBefore);
+        long droppedBefore = engine.droppedVideoFrames;
+        // No packets arrive for two seconds, as during a temporary Wi-Fi slowdown.
+        Thread.sleep(2000);
+        assertFalse("A two-second delivery pause exhausted the reserve", engine.buffering);
+        assertTrue("The movie clock froze during network jitter", engine.clockUs() > before + 1800000);
+        assertTrue("60 fps motion did not advance during the delivery pause", engine.renderedFrames > framesBefore + 80);
+        assertTrue("Decoder lost too many frames under buffered steady playback",
+            engine.droppedVideoFrames - droppedBefore < 12);
+        assertTrue("Frames were not scheduled onto the display clock", engine.lastScheduledNs > 0);
     }
 
     @Test public void realAvcWaitsForBufferTracksAudioAndSurvivesFullscreenStarvation() throws Exception {
@@ -246,14 +247,14 @@ public class StreamingTest {
         assertTrue("Two hundred ms must not bypass the initial buffer", engine.buffering);
         assertEquals("Video rendered before sufficient audio was buffered", 0L, engine.renderedFrames);
         long sent = SystemClock.elapsedRealtime();
-        audio(engine, 200, 1000, START_US);
-        video(engine, movie, 200, 1000, START_US);
+        audio(engine, 200, 6000, START_US);
+        video(engine, movie, 200, 6000, START_US);
         assertTrue("Supplying one second took too long", SystemClock.elapsedRealtime() - sent < 1500);
         until("Real AVC never rendered after audio buffering", 5000,
             () -> engine.renderedFrames >= 2 && read(() -> activity.screen.hasFrame()));
         assertRealGreenVideo("Actual AVC decoder rendered a black or wrong-colored frame");
         assertTrue("Audio clock did not reach stream timestamps", engine.clockUs() >= START_US);
-        assertTrue("Audio clock drifted ahead of supplied media", engine.clockUs() <= START_US + 1_200_000L);
+        assertTrue("Audio clock drifted ahead of supplied media", engine.clockUs() <= START_US + 6_200_000L);
         assertTrue("Rendered AVC frames lost their timestamps", engine.lastRenderedTimestampUs >= START_US);
         main(() -> activity.enterFullscreen());
         until("Fullscreen did not rotate the movie", 8000,
@@ -261,7 +262,7 @@ public class StreamingTest {
         assertSame("Rotation replaced the playback engine", engine, activity.playback);
         assertSame("Rotation replaced the playback worker", worker, engine.worker);
         assertRealGreenVideo("Fullscreen hid the decoded AVC video");
-        until("Audio starvation never paused playback for buffering", 5000, () -> engine.buffering);
+        until("Audio starvation never paused playback for buffering", 9000, () -> engine.buffering);
         // Allow an already-released surface frame to reach its presentation callback.
         Thread.sleep(120);
         long stopped = engine.renderedFrames;
@@ -275,8 +276,8 @@ public class StreamingTest {
         engine.setFilmMuted(true);
         engine.resetStream();
         engine.offer(StreamPacket.pack(StreamPacket.AVC_CONFIG, resumeUs, 0, movie.config));
-        video(engine, movie, 0, 1000, resumeUs);
-        audio(engine, 0, 1000, resumeUs);
+        video(engine, movie, 0, 4000, resumeUs);
+        audio(engine, 0, 4000, resumeUs);
         until("Film did not resume after an ordered media reset", 5000,
             () -> engine.renderedFrames > stopped + 2 && engine.lastRenderedTimestampUs >= resumeUs);
         long mutedClock = engine.clockUs();

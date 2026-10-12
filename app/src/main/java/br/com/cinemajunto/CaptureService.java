@@ -231,21 +231,24 @@ public class CaptureService extends Service {
         } catch (Exception e) { status("Não foi possível ajustar a transmissão. Encerre e tente novamente."); stopSelf(); }
     }
     void createEncoder() throws Exception {
+        encoder = MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_VIDEO_AVC);
+        MediaCodecInfo.VideoCapabilities limits = encoder.getCodecInfo().getCapabilitiesForType(MediaFormat.MIMETYPE_VIDEO_AVC).getVideoCapabilities();
+        int captureFps = limits.areSizeAndRateSupported(width, height, 60) ? 60
+            : limits.areSizeAndRateSupported(width, height, 30) ? 30 : 24;
         MediaFormat format = MediaFormat.createVideoFormat(MediaFormat.MIMETYPE_VIDEO_AVC, width, height);
         format.setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface);
         format.setInteger(MediaFormat.KEY_BIT_RATE, 1400000);
-        format.setInteger(MediaFormat.KEY_FRAME_RATE, 24);
-        format.setFloat(MediaFormat.KEY_MAX_FPS_TO_ENCODER, 24f);
+        format.setInteger(MediaFormat.KEY_FRAME_RATE, captureFps);
+        format.setFloat(MediaFormat.KEY_MAX_FPS_TO_ENCODER, (float)captureFps);
         format.setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 1);
         format.setInteger(MediaFormat.KEY_MAX_B_FRAMES, 0);
         format.setInteger(MediaFormat.KEY_PROFILE, MediaCodecInfo.CodecProfileLevel.AVCProfileBaseline);
         // Legacy OMX encoders require a level whenever an explicit profile is supplied.
-        // Level 3.1 covers even the maximum 960x960 capture at 24 frames per second.
-        format.setInteger(MediaFormat.KEY_LEVEL, MediaCodecInfo.CodecProfileLevel.AVCLevel31);
-        format.setLong(MediaFormat.KEY_REPEAT_PREVIOUS_FRAME_AFTER, 1000000L / 24);
+        // Level 3.2 covers 960x960 at 60 fps; slower devices keep the compatible level.
+        format.setInteger(MediaFormat.KEY_LEVEL, captureFps > 30 ? MediaCodecInfo.CodecProfileLevel.AVCLevel32 : MediaCodecInfo.CodecProfileLevel.AVCLevel31);
+        format.setLong(MediaFormat.KEY_REPEAT_PREVIOUS_FRAME_AFTER, 1000000L / captureFps);
         waitingForKeyFrame = true; configurationPending = true; cachedVideoConfig = null;
         encoderTimestampOffsetUs = Long.MIN_VALUE; lastSyncRequestUs = 0;
-        encoder = MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_VIDEO_AVC);
         encoder.setCallback(new MediaCodec.Callback() {
             @Override public void onInputBufferAvailable(MediaCodec codec, int index) {}
             @Override public void onOutputBufferAvailable(MediaCodec codec, int index, MediaCodec.BufferInfo info) {
