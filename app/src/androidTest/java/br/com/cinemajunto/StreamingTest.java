@@ -25,7 +25,7 @@ import static org.junit.Assert.*;
 /** Exercises an actual AVC encoder, decoder surface, PCM clock and playback buffer. */
 @RunWith(AndroidJUnit4.class)
 public class StreamingTest {
-    static final int WIDTH = 160, HEIGHT = 96, FPS = 60, SECONDS = 6;
+    static final int WIDTH = 160, HEIGHT = 96, FPS = 30, SECONDS = 6;
     static final long START_US = 1_000_000L;
     Instrumentation instrumentation;
     MainActivity activity;
@@ -121,6 +121,12 @@ public class StreamingTest {
                             assertNotNull("AVC encoder did not provide flexible YUV input", image);
                             assertEquals(3, image.getPlanes().length);
                             fillPlane(image.getPlanes()[0], WIDTH, HEIGHT, 145);
+                            // A moving luma stripe makes the fixture exercise changing frames, not a static color.
+                            Image.Plane luma = image.getPlanes()[0];
+                            int stripe = submitted * 5 % (WIDTH - 8);
+                            for (int y = 0; y < HEIGHT; y++)
+                                for (int x = stripe; x < stripe + 8; x++)
+                                    luma.getBuffer().put(y * luma.getRowStride() + x * luma.getPixelStride(), (byte)180);
                             fillPlane(image.getPlanes()[1], WIDTH / 2, HEIGHT / 2, 54);
                             fillPlane(image.getPlanes()[2], WIDTH / 2, HEIGHT / 2, 34);
                             encoder.queueInputBuffer(index, 0, WIDTH * HEIGHT * 3 / 2,
@@ -226,14 +232,32 @@ public class StreamingTest {
         long before = engine.clockUs();
         long framesBefore = engine.renderedFrames;
         long droppedBefore = engine.droppedVideoFrames;
+        long presentedBefore = engine.presentedFrames;
         // No packets arrive for two seconds, as during a temporary Wi-Fi slowdown.
         Thread.sleep(2000);
         assertFalse("A two-second delivery pause exhausted the reserve", engine.buffering);
         assertTrue("The movie clock froze during network jitter", engine.clockUs() > before + 1800000);
-        assertTrue("60 fps motion did not advance during the delivery pause", engine.renderedFrames > framesBefore + 80);
+        assertTrue("30 fps motion did not advance during the delivery pause", engine.renderedFrames > framesBefore + 40);
         assertTrue("Decoder lost too many frames under buffered steady playback",
             engine.droppedVideoFrames - droppedBefore < 12);
         assertTrue("Frames were not scheduled onto the display clock", engine.lastScheduledNs > 0);
+        assertTrue("Surface callbacks did not confirm actual frame presentation",
+            engine.presentedFrames > presentedBefore + 40);
+    }
+
+
+    @Test public void audioReserveMustNotStartPlaybackWithoutVideoReserve() throws Exception {
+        EncodedMovie movie = encodeGreenMovie();
+        PlaybackEngine engine = startMovie();
+        engine.offer(StreamPacket.pack(StreamPacket.AVC_CONFIG, START_US, 0, movie.config));
+        audio(engine, 0, 6000, START_US);
+        video(engine, movie, 0, 400, START_US);
+        Thread.sleep(700);
+        assertTrue("Audio alone incorrectly started a nearly empty video timeline", engine.buffering);
+        assertEquals(0L, engine.renderedFrames);
+        video(engine, movie, 400, 6000, START_US);
+        until("Playback did not start after BOTH media reserves filled", 7000,
+            () -> !engine.buffering && engine.presentedFrames >= 5);
     }
 
     @Test public void realAvcWaitsForBufferTracksAudioAndSurvivesFullscreenStarvation() throws Exception {
@@ -276,8 +300,8 @@ public class StreamingTest {
         engine.setFilmMuted(true);
         engine.resetStream();
         engine.offer(StreamPacket.pack(StreamPacket.AVC_CONFIG, resumeUs, 0, movie.config));
-        video(engine, movie, 0, 4000, resumeUs);
-        audio(engine, 0, 4000, resumeUs);
+        video(engine, movie, 0, 6000, resumeUs);
+        audio(engine, 0, 6000, resumeUs);
         until("Film did not resume after an ordered media reset", 5000,
             () -> engine.renderedFrames > stopped + 2 && engine.lastRenderedTimestampUs >= resumeUs);
         long mutedClock = engine.clockUs();

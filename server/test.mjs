@@ -401,3 +401,20 @@ test('quando configurado para proxy confiável, alterar o primeiro IP de XFF nã
   await rejectedJoin(url, attempt, 1013, undefined, { headers: { 'X-Forwarded-For': '203.0.113.3, 198.51.100.1' } });
   await rejectedJoin(url, attempt, 1008, undefined, { headers: { 'X-Forwarded-For': '203.0.113.3, 198.51.100.2' } });
 });
+
+test('reserva normal de rede não descarta quadros nem reinicia o filme', async t => {
+  const { url, relay } = await fixture(t);
+  const key = 'c'.repeat(64);
+  const host = await join(url, 'host', key); const viewer = await join(url, 'viewer', key);
+  await nextJson(host, 'request-keyframe');
+  await sendAndReceive(host, viewer, packet(5, 0n, 2));
+  await sendAndReceive(host, viewer, packet(6, 1000n, 1));
+  const room = relay.rooms.get(key);
+  Object.defineProperty(room.viewer, 'bufferedAmount', { configurable: true, get: () => 700 * 1024 });
+  for (let i = 0; i < 12; i++) {
+    await sendAndReceive(host, viewer, packet(6, BigInt(2000 + i * 1000)));
+    await sendAndReceive(host, viewer, packet(4, BigInt(2000 + i * 1000)));
+  }
+  assert.equal(room.waitingKeyframe, false);
+  assert.equal(inboxes.get(viewer).messages.filter(entry => entry.json?.type === 'media-reset').length, 0);
+});

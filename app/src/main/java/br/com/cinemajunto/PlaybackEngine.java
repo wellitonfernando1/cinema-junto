@@ -10,7 +10,7 @@ import java.util.concurrent.ArrayBlockingQueue;
 /** Bounded receiver buffer. The audio actually played by the device is the video clock. */
 final class PlaybackEngine implements AutoCloseable {
     static final int RATE = 44100;
-    static final long PRELOAD_US = 3000000, MAX_BACKLOG_US = 12000000;
+    static final long PRELOAD_US = 5000000, MAX_BACKLOG_US = 20000000;
     interface Listener {
         void buffering(boolean value);
         void requestKeyFrame();
@@ -20,12 +20,14 @@ final class PlaybackEngine implements AutoCloseable {
     final FilmView view;
     final Listener listener;
     final Handler ui = new Handler(Looper.getMainLooper());
-    final ArrayBlockingQueue<StreamPacket.Packet> incoming = new ArrayBlockingQueue<>(1024);
+    final ArrayBlockingQueue<StreamPacket.Packet> incoming = new ArrayBlockingQueue<>(2048);
     final ArrayDeque<StreamPacket.Packet> audio = new ArrayDeque<>(), video = new ArrayDeque<>();
     volatile boolean running = true, buffering = true;
     volatile boolean filmMuted;
     private boolean appliedMute;
     volatile long renderedFrames, lastRenderedTimestampUs;
+    volatile long presentedFrames, lastPresentedNs, longestPresentationGapNs;
+    long latestVideoUs = Long.MIN_VALUE;
     private volatile long currentClockUs;
     MediaCodec decoder;
     AudioTrack track;
@@ -88,16 +90,17 @@ final class PlaybackEngine implements AutoCloseable {
             while (running && !Thread.currentThread().isInterrupted()) {
                 if (appliedMute != filmMuted) { appliedMute = filmMuted; track.setVolume(appliedMute ? 0f : 1f); }
                 StreamPacket.Packet packet;
-                while ((packet = incoming.poll()) != null) accept(packet);
+                // Bound ingestion work so a network burst cannot starve rendering and audio writes.
+                for (int n = 0; n < 64 && (packet = incoming.poll()) != null; n++) accept(packet);
                 if (decoder != null && surfaceGeneration != view.surfaceGeneration()) { restart(); requestKeyFrame(); }
                 if (decoder == null && config != null && view.decoderSurface() != null) configure();
                 if (!audio.isEmpty() && !video.isEmpty() && audio.peekLast().timestampUs - audio.peekFirst().timestampUs > MAX_BACKLOG_US) {
                     restart(); requestKeyFrame();
                 }
-                if (video.size() > 900 || audio.size() > 700) { restart(); requestKeyFrame(); }
+                if (video.size() > 1500 || audio.size() > 1100) { restart(); requestKeyFrame(); }
                 // Warm the decoder while the multi-second reserve fills, before starting the movie clock.
                 if (buffering && !waitingForKeyFrame && decoder != null) feedVideo(firstVideoUs);
-                if (buffering && !waitingForKeyFrame && decoder != null && bufferedAudioUs() >= PRELOAD_US) {
+                if (buffering && !waitingForKeyFrame && decoder != null && bufferedAudioUs() >= PRELOAD_US && bufferedVideoUs() >= PRELOAD_US - 250000) {
                     if (audioOriginUs == Long.MIN_VALUE) {
                         // Skip sound recorded before the first decodable movie frame.
                         while (audio.size() > 1 && audio.peekFirst().timestampUs + duration(audio.peekFirst()) < firstVideoUs) audio.poll();
@@ -112,6 +115,10 @@ final class PlaybackEngine implements AutoCloseable {
                     fillAudio();
                     if (buffering) { Thread.sleep(4); continue; }
                     currentClockUs = videoClockUs(System.nanoTime());
+                    // Do not run sound past missing video and then discard a burst of late frames.
+                    if (latestVideoUs != Long.MIN_VALUE && currentClockUs > latestVideoUs + 100000) {
+                        track.pause(); timestampValid = false; state(true); continue;
+                    }
                     decodeVideo(currentClockUs);
                     if (pcm == null && audio.isEmpty() && writtenFrames - playedFrames() < RATE / 100) {
                         track.pause(); timestampValid = false; state(true);
@@ -128,6 +135,10 @@ final class PlaybackEngine implements AutoCloseable {
             if (track != null) { try { track.stop(); } catch (Exception ignored) {} track.release(); }
             incoming.clear(); audio.clear(); video.clear();
         }
+    }
+    private long bufferedVideoUs() {
+        long start = started ? currentClockUs : firstVideoUs;
+        return latestVideoUs == Long.MIN_VALUE ? 0 : Math.max(0, latestVideoUs - start);
     }
     private static long duration(StreamPacket.Packet p) { return (p.payload.length / 2) * 1000000L / RATE; }
     private long bufferedAudioUs() {
@@ -148,7 +159,7 @@ final class PlaybackEngine implements AutoCloseable {
                 if (!key) return;
                 waitingForKeyFrame = false; firstVideoUs = p.timestampUs;
             }
-            video.addLast(p);
+            video.addLast(p); latestVideoUs = Math.max(latestVideoUs, p.timestampUs);
         } else if (p.type == StreamPacket.PCM) audio.addLast(p);
     }
     private void configure() throws Exception {
@@ -160,7 +171,11 @@ final class PlaybackEngine implements AutoCloseable {
         decoder = MediaCodec.createDecoderByType(MediaFormat.MIMETYPE_VIDEO_AVC);
         decoder.configure(format, surface, null, 0);
         decoder.setOnFrameRenderedListener((codec, pts, ns) -> {
-            if (running && codec == decoder) view.markVideoFrame();
+            if (running && codec == decoder) {
+                if (lastPresentedNs != 0 && ns > lastPresentedNs)
+                    longestPresentationGapNs = Math.max(longestPresentationGapNs, ns - lastPresentedNs);
+                lastPresentedNs = ns; presentedFrames++; view.markVideoFrame();
+            }
         }, ui);
         decoder.start(); surfaceGeneration = view.surfaceGeneration();
         int w = config.width, h = config.height; ui.post(() -> { if (running) view.setVideoSize(w, h); });
@@ -265,7 +280,8 @@ final class PlaybackEngine implements AutoCloseable {
         if (track != null) { try { track.pause(); track.flush(); } catch (Exception ignored) {} }
         releaseDecoder(); audio.clear(); video.clear(); pcm = null; pcmOffset = 0;
         audioOriginUs = Long.MIN_VALUE; writtenFrames = 0; currentClockUs = 0; resetVideoClock();
-        waitingForKeyFrame = true; started = false; state(true);
+        waitingForKeyFrame = true; started = false; latestVideoUs = Long.MIN_VALUE;
+        lastPresentedNs = 0; longestPresentationGapNs = 0; state(true);
     }
     private void releaseDecoder() {
         outputIndex = -1;

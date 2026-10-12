@@ -43,7 +43,7 @@ public class CaptureService extends Service {
     boolean waitingForKeyFrame = true, configurationPending = true;
     long lastSyncRequestUs, encoderTimestampOffsetUs = Long.MIN_VALUE, lastVideoTimestampUs;
     static final int AUDIO_RATE = 44100;
-    static final long MAX_SEND_QUEUE = 256 * 1024;
+    static final long MAX_SEND_QUEUE = 1024 * 1024;
     int width, height, density;
     final Handler main = new Handler(Looper.getMainLooper());
     HostChatOverlay overlay;
@@ -75,7 +75,7 @@ public class CaptureService extends Service {
     }
     boolean sendVoiceAudio(byte[] packet) {
         synchronized (sendLock) {
-            return running && connected && socket != null && socket.queueSize() < MAX_SEND_QUEUE
+            return running && connected && socket != null && socket.queueSize() < 256 * 1024
                 && socket.send(ByteString.of(packet));
         }
     }
@@ -233,8 +233,9 @@ public class CaptureService extends Service {
     void createEncoder() throws Exception {
         encoder = MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_VIDEO_AVC);
         MediaCodecInfo.VideoCapabilities limits = encoder.getCodecInfo().getCapabilitiesForType(MediaFormat.MIMETYPE_VIDEO_AVC).getVideoCapabilities();
-        int captureFps = limits.areSizeAndRateSupported(width, height, 60) ? 60
-            : limits.areSizeAndRateSupported(width, height, 30) ? 30 : 24;
+        // A declared 60 fps capability is not a sustained-performance guarantee while a movie plays.
+        // Keep the capture workload predictable on phones also decoding the source film.
+        int captureFps = limits.areSizeAndRateSupported(width, height, 30) ? 30 : 24;
         MediaFormat format = MediaFormat.createVideoFormat(MediaFormat.MIMETYPE_VIDEO_AVC, width, height);
         format.setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface);
         format.setInteger(MediaFormat.KEY_BIT_RATE, 1400000);
@@ -244,9 +245,10 @@ public class CaptureService extends Service {
         format.setInteger(MediaFormat.KEY_MAX_B_FRAMES, 0);
         format.setInteger(MediaFormat.KEY_PROFILE, MediaCodecInfo.CodecProfileLevel.AVCProfileBaseline);
         // Legacy OMX encoders require a level whenever an explicit profile is supplied.
-        // Level 3.2 covers 960x960 at 60 fps; slower devices keep the compatible level.
-        format.setInteger(MediaFormat.KEY_LEVEL, captureFps > 30 ? MediaCodecInfo.CodecProfileLevel.AVCLevel32 : MediaCodecInfo.CodecProfileLevel.AVCLevel31);
-        format.setLong(MediaFormat.KEY_REPEAT_PREVIOUS_FRAME_AFTER, 1000000L / captureFps);
+        // Level 3.1 covers the bounded 30 fps capture.
+        format.setInteger(MediaFormat.KEY_LEVEL, MediaCodecInfo.CodecProfileLevel.AVCLevel31);
+        // Repeat only for static screens; duplicating every refresh adds unnecessary encoder work.
+        format.setLong(MediaFormat.KEY_REPEAT_PREVIOUS_FRAME_AFTER, 200000L);
         waitingForKeyFrame = true; configurationPending = true; cachedVideoConfig = null;
         encoderTimestampOffsetUs = Long.MIN_VALUE; lastSyncRequestUs = 0;
         encoder.setCallback(new MediaCodec.Callback() {

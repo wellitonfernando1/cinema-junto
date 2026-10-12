@@ -3,7 +3,7 @@ import { WebSocketServer, WebSocket } from 'ws';
 import { pathToFileURL } from 'node:url';
 import { isIP } from 'node:net';
 
-export function createRelay({ ttlMs = 2 * 60 * 60 * 1000, mediaBufferLimitBytes = 256 * 1024, talkTtlMs = 30000,
+export function createRelay({ ttlMs = 2 * 60 * 60 * 1000, mediaBufferLimitBytes = 1024 * 1024, talkTtlMs = 30000,
   joinAttemptLimit = 12, joinWindowMs = 60000, joinClock = Date.now,
   trustedProxyHops = process.env.RENDER === 'true' ? 1 : 0 } = {}) {
   const rooms = new Map();
@@ -34,7 +34,7 @@ export function createRelay({ ttlMs = 2 * 60 * 60 * 1000, mediaBufferLimitBytes 
     return direct;
   };
   const send = (target, data, binary = false) => {
-    if (target?.readyState !== WebSocket.OPEN || target.bufferedAmount >= 512 * 1024) return false;
+    if (target?.readyState !== WebSocket.OPEN || target.bufferedAmount >= (binary ? mediaBufferLimitBytes + 512 * 1024 : 512 * 1024)) return false;
     target.send(data, { binary });
     return true;
   };
@@ -69,7 +69,7 @@ export function createRelay({ ttlMs = 2 * 60 * 60 * 1000, mediaBufferLimitBytes 
     if (room.voiceTokens < data.length - 13) return;
     room.voiceTokens -= data.length - 13;
     const peer = role === 'host' ? room.viewer : room.host;
-    if (peer?.bufferedAmount < mediaBufferLimitBytes) send(peer, data, true);
+    if (peer?.bufferedAmount < Math.min(mediaBufferLimitBytes, 256 * 1024)) send(peer, data, true);
   };
   const forwardMedia = (room, data) => {
     const type = data[0];
