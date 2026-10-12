@@ -261,6 +261,8 @@ public class SourceCaptureTest {
         int listeningVolume = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC);
         assertTrue(viewer.send(new JSONObject().put("type", "talk").put("active", true).toString()));
         until("Viewer did not receive the voice turn", 3000, viewerTalking::get);
+        until("Host did not mute the movie after activating speakerphone", 3000,
+            () -> audioManager.getStreamVolume(AudioManager.STREAM_MUSIC) == 0);
         byte[] receivedSpeech = new byte[640];
         for (int i = 0; i < 320; i++) {
             short sample = (short)(6000 * Math.sin(2 * Math.PI * 440 * i / 16000));
