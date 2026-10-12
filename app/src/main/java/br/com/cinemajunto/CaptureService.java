@@ -51,6 +51,7 @@ public class CaptureService extends Service {
     VoiceButton voiceButton;
     WindowManager voiceWindows;
     AudioManager audioManager;
+    VoiceMovieFocus movieFocus;
     int previousMovieVolume = -1;
     boolean movieMuted;
     DisplayManager displayManager;
@@ -81,13 +82,19 @@ public class CaptureService extends Service {
     }
     void createVoice() {
         audioManager = getSystemService(AudioManager.class);
+        movieFocus = new VoiceMovieFocus(audioManager, main);
         voice = new VoiceTalk(this, "host", new VoiceTalk.Listener() {
             public boolean sendText(String text) { return sendVoiceText(text); }
             public boolean sendBinary(byte[] packet) { return sendVoiceAudio(packet); }
             public void muteMovie(boolean muted) {
-                // Incoming speech shares STREAM_MUSIC. Only mute the source film for our own turn.
-                VoiceTalk talk = voice;
-                setMovieMuted(muted && (talk == null || !talk.peerTalking));
+                main.post(() -> {
+                    VoiceTalk talk = voice;
+                    boolean listening = running && talk != null && talk.peerTalking;
+                    // Never lower STREAM_MUSIC while listening: it contains the peer's speech.
+                    setMovieMuted(muted && !listening);
+                    if (movieFocus != null && !movieFocus.setListening(listening))
+                        status("O filme não liberou o áudio. Pause o filme para ouvir seu amigo.");
+                });
             }
             public void error(String text) { status(text); }
         });
@@ -370,6 +377,7 @@ public class CaptureService extends Service {
         VoiceTalk talk = voice; voice = null; if (talk != null) talk.close();
         if (voiceButton != null && voiceWindows != null) { try { voiceWindows.removeView(voiceButton); } catch (Exception ignored) {} voiceButton = null; }
         setMovieMuted(false);
+        if (movieFocus != null) { movieFocus.close(); movieFocus = null; }
         if (overlay != null) { overlay.close(); overlay = null; }
         if (recorder != null) { try { recorder.stop(); } catch (Exception ignored) {} }
         if (audio != null) { audio.interrupt(); try { audio.join(500); } catch (InterruptedException ignored) {} }
