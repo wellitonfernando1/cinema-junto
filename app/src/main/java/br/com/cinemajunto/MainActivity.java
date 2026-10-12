@@ -261,7 +261,10 @@ public class MainActivity extends Activity {
             public boolean sendBinary(byte[] packet) { WebSocket ws = socket; return watching && viewerJoined && ws != null && ws.queueSize() < 128*1024 && ws.send(ByteString.of(packet)); }
             public void muteMovie(boolean muted) {
                 PlaybackEngine engine = playback; if (engine != null) engine.setFilmMuted(muted);
-                ui.post(() -> { if (microphone != null) microphone.setTalking(voice != null && voice.isTalking()); });
+                ui.post(() -> {
+                    setVolumeControlStream(muted ? android.media.AudioManager.STREAM_VOICE_CALL : android.media.AudioManager.STREAM_MUSIC);
+                    if (microphone != null) microphone.setTalking(voice != null && voice.isTalking());
+                });
             }
             public void error(String message) { ui.post(() -> { if (!destroyed && watching) Toast.makeText(MainActivity.this, message, Toast.LENGTH_LONG).show(); }); }
         });

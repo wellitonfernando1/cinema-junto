@@ -272,13 +272,14 @@ public class SourceCaptureTest {
                 SystemClock.elapsedRealtimeNanos() / 1000L, 0, receivedSpeech))));
             Thread.sleep(20);
             instrumentation.waitForIdleSync();
-            assertEquals("Receiving the viewer's voice muted the host speaker", listeningVolume,
+            assertEquals("Incoming speech did not mute the movie stream", 0,
                 audioManager.getStreamVolume(AudioManager.STREAM_MUSIC));
         }
         assertTrue("Receiving voice stopped the movie transmission", CaptureService.active);
         assertTrue(viewer.send(new JSONObject().put("type", "talk").put("active", false).toString()));
         until("Viewer voice turn did not end", 3000, () -> !viewerTalking.get());
-        assertEquals(listeningVolume, audioManager.getStreamVolume(AudioManager.STREAM_MUSIC));
+        until("Ending speech did not restore the movie volume", 3000,
+            () -> audioManager.getStreamVolume(AudioManager.STREAM_MUSIC) == listeningVolume);
 
         assertTrue("Could not leave Cinema Junto for the real home application", device.pressHome());
         until("The home application did not appear under the capture overlays", 4000,

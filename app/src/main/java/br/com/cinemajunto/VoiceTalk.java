@@ -24,6 +24,7 @@ final class VoiceTalk implements AutoCloseable {
     final Context context;
     final String role;
     final Listener listener;
+    final VoiceAudioRoute route;
     final Object lock = new Object();
     final Handler main = new Handler(Looper.getMainLooper());
     final ArrayBlockingQueue<byte[]> voice = new ArrayBlockingQueue<>(8);
@@ -51,6 +52,7 @@ final class VoiceTalk implements AutoCloseable {
     VoiceTalk(Context context, String role, Listener listener) {
         if (!"host".equals(role) && !"viewer".equals(role)) throw new IllegalArgumentException("Papel inválido");
         this.context = context.getApplicationContext(); this.role = role; this.listener = listener;
+        route = new VoiceAudioRoute(this.context.getSystemService(AudioManager.class));
         player = new Thread(this::playVoice, "CinemaVozRecebida"); player.start();
     }
 
@@ -154,7 +156,10 @@ final class VoiceTalk implements AutoCloseable {
 
     void updateMovieMute() {
         boolean muted;
-        synchronized (lock) { muted = !closed && (peerTalking || talking || pending); }
+        synchronized (lock) {
+            muted = !closed && (peerTalking || talking || pending);
+            if (!route.setActive(muted)) listener.error("Não foi possível ativar o viva-voz. Entre na sala novamente.");
+        }
         listener.muteMovie(muted);
     }
 
@@ -242,9 +247,8 @@ final class VoiceTalk implements AutoCloseable {
             int minimum = AudioTrack.getMinBufferSize(RATE, AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_16BIT);
             if (minimum <= 0) throw new IllegalStateException("Áudio indisponível");
             track = new AudioTrack.Builder()
-                // Half-duplex speech follows the movie's media route and volume, including headphones.
-                // VOICE_COMMUNICATION uses the call stream and can select the quiet earpiece.
-                .setAudioAttributes(new AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA)
+                // Keep speech separate from the muted movie; VoiceAudioRoute selects speakerphone.
+                .setAudioAttributes(new AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
                     .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
                     .setAllowedCapturePolicy(AudioAttributes.ALLOW_CAPTURE_BY_NONE).build())
                 .setAudioFormat(new AudioFormat.Builder().setSampleRate(RATE)

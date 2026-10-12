@@ -96,7 +96,7 @@ public class VoiceTest {
         finally { event.recycle(); }
     }
 
-    @Test public void receivedVoiceUsesMediaVolumeForBothRolesAndReleasesPlayer() throws Exception {
+    @Test public void receivedVoiceUsesCallVolumeAndSpeakerphoneForBothRolesAndReleasesPlayer() throws Exception {
         assertEquals(AudioManager.STREAM_MUSIC, activity.getVolumeControlStream());
         for (String role : new String[]{"viewer", "host"}) {
             FakeListener listener = new FakeListener();
@@ -104,12 +104,17 @@ public class VoiceTest {
             until("Voice player was not initialized", 3000, () -> talk.playbackTrack != null);
             AudioTrack track = talk.playbackTrack;
             AudioAttributes attributes = track.getAudioAttributes();
-            assertEquals("Voice must not use the quiet call stream", AudioAttributes.USAGE_MEDIA, attributes.getUsage());
-            assertEquals(AudioManager.STREAM_MUSIC, attributes.getVolumeControlStream());
+            assertEquals("Speech must stay separate from the muted movie", AudioAttributes.USAGE_VOICE_COMMUNICATION, attributes.getUsage());
+            assertEquals(AudioManager.STREAM_VOICE_CALL, attributes.getVolumeControlStream());
             assertEquals(AudioAttributes.CONTENT_TYPE_SPEECH, attributes.getContentType());
             assertEquals("Incoming speech must not be captured and echoed back with the movie",
                 AudioAttributes.ALLOW_CAPTURE_BY_NONE, attributes.getAllowedCapturePolicy());
             talk.onControl(control("host".equals(role) ? "viewer" : "host", true));
+            assertEquals(AudioManager.MODE_IN_COMMUNICATION, activity.getSystemService(AudioManager.class).getMode());
+            if (android.os.Build.VERSION.SDK_INT >= 31)
+                assertEquals(android.media.AudioDeviceInfo.TYPE_BUILTIN_SPEAKER,
+                    activity.getSystemService(AudioManager.class).getCommunicationDevice().getType());
+            else assertTrue(activity.getSystemService(AudioManager.class).isSpeakerphoneOn());
             talk.onAudio(StreamPacket.pack(7, 1_000_000L, 0, new byte[640]));
             until("Incoming voice did not start playback", 3000, () -> track.getPlayState() == AudioTrack.PLAYSTATE_PLAYING);
             talk.close();
