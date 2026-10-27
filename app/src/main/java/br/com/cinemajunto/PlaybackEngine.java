@@ -247,7 +247,7 @@ final class PlaybackEngine implements AutoCloseable {
         // video frames. Slew the video mapping by at most 2 ms per second.
         long desiredCorrection = measuredUs - smoothUs;
         long elapsedNs = Math.max(0, nowNs - lastClockSampleNs);
-        long stepUs = Math.max(1, elapsedNs / 500000L);
+        long stepUs = elapsedNs / 500000L;
         appliedClockCorrectionUs += Math.max(-stepUs, Math.min(stepUs, desiredCorrection - appliedClockCorrectionUs));
         lastClockSampleNs = nowNs;
         return Math.max(currentClockUs, Math.min(audioOriginUs + writtenFrames * 1000000L / RATE,
@@ -283,9 +283,12 @@ final class PlaybackEngine implements AutoCloseable {
             long nowNs = System.nanoTime();
             clockUs = videoClockUs(nowNs);
             long untilUs = output.presentationTimeUs - clockUs;
-            // SurfaceView presents at the requested VSYNC. Submit about two refreshes in advance.
+            // Submit early enough to cover brief scheduler delays without decoding at display resolution.
             if (untilUs > 80000) break;
-            boolean render = untilUs >= -80000;
+            // Several overdue frames released at the same instant collapse onto one
+            // VSYNC. Skip frames older than one 30 fps interval plus a small margin,
+            // so catch-up does not produce a burst of competing presentations.
+            boolean render = untilUs >= -40000;
             if (render) {
                 // Use the same smoothed movie clock for both deadlines and late-frame
                 // decisions. Do not switch abruptly from playback-head to hardware time.
