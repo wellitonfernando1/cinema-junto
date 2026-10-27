@@ -4,7 +4,7 @@ Projeto Android para Welliton e um amigo assistirem à tela e ao áudio do celul
 
 ## Estado desta entrega
 
-O APK é gerado pelo GitHub Actions e o servidor está publicado no plano Free do Render em https://cinema-junto-welliton.onrender.com/. A versão 0.9 mostra o microfone em azul enquanto pressionado e restaura o chat de quem transmite, inclusive no Android 13, conforme autorizado. Mantém a correção da entrada com senha em conexões lentas: pedidos de vídeo, chat e voz aguardam a confirmação da sala. Mantém um botão circular vermelho com ícone branco de microfone no canto superior direito para os dois participantes, usa uma senha simples escolhida por quem transmite e vincula cada sala ao primeiro aparelho convidado. Mantém vídeo AVC/H.264 nativo a até 24 quadros por segundo, pequeno buffer e relógio comum para áudio e imagem. O teclado fecha após cinco segundos sem uso e preserva o rascunho. Os dois participantes podem segurar o botão de microfone para falar. A compatibilidade com o YouCine e a fluidez precisam ser confirmadas nos aparelhos reais.
+O APK 0.15 usa o teclado padrão escolhido nas configurações do celular. Ao abrir o chat de quem assiste, a tela gira para a vertical, o filme continua acima do teclado e, ao fechar, a tela cheia volta à horizontal. A reprodução, o áudio e o buffer de cinco segundos da versão 0.14 são preservados. A sala aceita cinco aparelhos no total: um transmite e quatro assistem e conversam. É possível entrar com um segundo celular para digitar sem abrir o teclado no aparelho que transmite.
 
 ## Instalar ou gerar novamente o APK sem Android Studio
 
@@ -42,7 +42,7 @@ O servidor pode levar algum tempo para responder após inatividade, conforme as 
 
 1. Abra o Cinema Junto.
 2. Digite a senha criada por quem transmite. Os dois aparelhos devem usar o endereço do servidor já preenchido. Convites completos de sessões antigas também continuam aceitos.
-3. Toque em Assistir com a senha. A sala fica ligada a este aparelho convidado até quem transmite encerrar. O mesmo aparelho pode sair e entrar novamente; outro convidado é recusado mesmo após a saída do primeiro. Se apagar os dados do aplicativo ou reinstalá-lo durante a sala, quem transmite precisa encerrar e criar uma nova sala. Aguarde o pequeno carregamento inicial de aproximadamente 450 ms de áudio, além do tempo de conexão. O buffer reduz variações de chegada da rede. Se faltarem dados, áudio e vídeo aguardam juntos.
+3. Toque em Assistir com a senha. Até quatro convidados podem entrar. O mesmo aparelho pode sair e entrar novamente, substituindo somente sua própria conexão. A saída de um convidado libera a vaga. Aguarde o carregamento inicial de cerca de cinco segundos de áudio e imagem.
 4. Toque em **Tela cheia** para ocupar a tela em paisagem; toque em **Voltar** para sair. Girar o aparelho mantém a conexão ativa. Os controles desaparecem após alguns segundos; toque na imagem para mostrá-los. **Ampliar** preenche a tela recortando as bordas da imagem; **Ajustar** volta a mostrar a imagem inteira.
 5. Toque em **Chat** para escrever com o teclado ou usar os emojis rápidos. O filme continua na parte de cima e o teclado ocupa a parte de baixo. Ao fechar o teclado, ou após cinco segundos sem usar o chat, ele recolhe e a imagem volta a ocupar a tela. O rascunho é preservado. O editor de texto não abre em tela inteira na orientação paisagem. As mensagens aparecem no topo do vídeo por alguns segundos.
 6. Use fones para evitar eco se vocês também estiverem conversando por outro aplicativo.
@@ -50,7 +50,7 @@ O servidor pode levar algum tempo para responder após inatividade, conforme as 
 
 ### Encerrar
 
-Quem transmite pode tocar em Encerrar na notificação ou dentro do aplicativo. Quem assiste toca em Encerrar. Uma sala admite um transmissor e um convidado e expira em duas horas. Para filmes mais longos, encerre e crie uma nova sala.
+Quem transmite pode tocar em Encerrar na notificação ou dentro do aplicativo. Quem assiste toca em Encerrar. Uma sala admite um transmissor e até quatro convidados e expira em duas horas. Para filmes mais longos, encerre e crie uma nova sala.
 
 ## Limites importantes da versão de teste
 
@@ -69,13 +69,13 @@ Quem transmite pode tocar em Encerrar na notificação ou dentro do aplicativo. 
 
 ## Privacidade
 
-A senha é escolhida por quem transmite. Compartilhe somente com seu amigo; uma palavra muito comum pode ser adivinhada. Internamente o aplicativo envia uma chave derivada dessa palavra por HTTPS/WSS, e o servidor limita tentativas de entrada. O primeiro convidado fica vinculado por um identificador aleatório persistido nesta instalação; isso limita a sala a um transmissor e um convidado, mas não é uma comprovação física do aparelho. Encerrar a transmissão libera uma nova associação ao recriar a sala.
+A senha é escolhida por quem transmite. Compartilhe somente com seu amigo; uma palavra muito comum pode ser adivinhada. Internamente o aplicativo envia uma chave derivada dessa palavra por HTTPS/WSS, e o servidor limita tentativas de entrada. Cada instalação usa um identificador aleatório para substituir sua conexão ao entrar novamente. O limite é de cinco conexões simultâneas; o identificador não comprova fisicamente o aparelho.
 
 Não há criptografia de ponta a ponta: o operador da hospedagem tem acesso ao trânsito dos dados. O servidor não salva filme, áudio, senha ou conteúdo da tela em disco. A senha criada fica nas preferências do aplicativo para permitir compartilhá-la enquanto a sala está ativa. O compartilhamento pelo seu mensageiro segue as condições desse mensageiro.
 
 ## Validação
 
-Servidor: execute `npm ci` e `npm test` dentro de `server`. Os testes verificam isolamento entre salas, AVC/PCM com timestamps, recuperação após congestionamento, configuração para ingresso tardio, limites de participantes e microfone nos dois sentidos, com um falante por vez, limite de tempo e encerramento da voz ao sair. Também verificam senha ocupada/inexistente, vínculo do convidado, reconexão do mesmo aparelho, recusa de terceiro aparelho, compatibilidade com salas antigas e limitação de tentativas.
+Servidor: execute `npm ci` e `npm test` dentro de `server`. Os testes verificam isolamento entre salas, AVC/PCM com timestamps, recuperação após congestionamento, configuração para ingresso tardio, limites de participantes e microfone nos dois sentidos, com um falante por vez, limite de tempo e encerramento da voz ao sair. Também verificam senha ocupada/inexistente, reconexão do mesmo aparelho, cinco participantes, recusa do sexto aparelho, isolamento de congestionamento e voz/chat entre convidados, compatibilidade com salas antigas e limitação de tentativas.
 
 Android: o fluxo GitHub Actions instala Java 17, Gradle 8.13 e Android SDK 35, compila o APK e os testes de instrumentação e executa os mesmos APKs em emuladores API 29 e 35. Os testes incluem AVC codificado e decodificado de verdade, buffer, relógio do áudio, falta de dados, recuperação, imagem em tela cheia e muting durante a voz. Também verificam contraste do convite, teclado após cinco segundos, preservação do rascunho e captura do microfone nos dois papéis somente enquanto o botão está pressionado e a sala autorizou a fala. Os testes de interface verificam o recebimento do chat pelo serviço de captura e sua exibição no topo sobre outro aplicativo. Depois disso, teste nos dois aparelhos: permissões, convite, captura do YouCine, som interno, voz, fones/alto-falante, atraso, giro e encerramento. Emuladores não garantem o comportamento do fabricante ou do YouCine.
 

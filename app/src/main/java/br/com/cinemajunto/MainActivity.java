@@ -74,8 +74,8 @@ public class MainActivity extends Activity {
         controls = new LinearLayout(this); controls.setOrientation(LinearLayout.VERTICAL);
         controls.setPadding(dp(16), dp(12), dp(16), dp(12)); controls.setBackgroundColor(0xfffafafa);
         setupScroll.addView(controls); mainLayout.addView(setupScroll, new LinearLayout.LayoutParams(-1, 0, 1));
-        TextView title = new TextView(this); title.setTextColor(Color.BLACK); title.setText("Cinema Junto 0.14"); title.setTextSize(24); controls.addView(title);
-        TextView subtitle = new TextView(this); subtitle.setTextColor(Color.BLACK); subtitle.setText("Filme, chat, microfone e senha simples · Versão 0.14"); controls.addView(subtitle);
+        TextView title = new TextView(this); title.setTextColor(Color.BLACK); title.setText("Cinema Junto 0.15"); title.setTextSize(24); controls.addView(title);
+        TextView subtitle = new TextView(this); subtitle.setTextColor(Color.BLACK); subtitle.setText("Filme, chat, microfone e senha simples · Versão 0.15"); controls.addView(subtitle);
         endpoint = new EditText(this); endpoint.setSingleLine(true); endpoint.setHint("Endereço do servidor");
         readableInput(endpoint);
         endpoint.setText(getPreferences(0).getString("endpoint", "https://cinema-junto-welliton.onrender.com/")); controls.addView(endpoint);
@@ -89,7 +89,7 @@ public class MainActivity extends Activity {
         button(controls, "Assistir com a senha", () -> startViewer());
         button(controls, "Chat de quem transmite", () -> openHostChat());
         button(controls, "Encerrar", () -> endSession());
-        status = new TextView(this); status.setTextColor(Color.BLACK); status.setText("Quem transmite cria uma senha. O amigo digita a mesma senha para entrar. Só dois aparelhos por sala."); controls.addView(status);
+        status = new TextView(this); status.setTextColor(Color.BLACK); status.setText("Quem transmite cria uma senha. O amigo digita a mesma senha para entrar. Até cinco aparelhos por sala: um transmite e quatro assistem e conversam."); controls.addView(status);
         TextView tip = new TextView(this);
         tip.setTextColor(Color.BLACK);
         tip.setText(CaptureService.supportsSingleAppSharing()
@@ -156,6 +156,7 @@ public class MainActivity extends Activity {
         LinearLayout inputRow = new LinearLayout(this); inputRow.setGravity(Gravity.CENTER_VERTICAL);
         chatInput = new EditText(this); chatInput.setSingleLine(true); chatInput.setHint("Mensagem");
         chatInput.setTextColor(0xffffffff); chatInput.setHintTextColor(0xffbbbbbb); chatInput.setTextSize(16);
+        chatInput.setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_FLAG_CAP_SENTENCES | android.text.InputType.TYPE_TEXT_FLAG_AUTO_CORRECT);
         chatInput.setFilters(new InputFilter[]{new InputFilter.LengthFilter(280)});
         chatInput.addTextChangedListener(new TextWatcher() {
             public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
@@ -171,11 +172,6 @@ public class MainActivity extends Activity {
         close.setOnClickListener(v -> closeChat()); inputRow.addView(close, new LinearLayout.LayoutParams(dp(44), dp(44)));
         chatPanel.addView(inputRow);
         emojiRow = new LinearLayout(this);
-        for (String emoji : new String[]{"😀", "😂", "😍", "❤️", "👍"}) {
-            Button choice = new Button(this); choice.setText(emoji); choice.setTextSize(17); choice.setMinHeight(0); choice.setMinimumHeight(0);
-            choice.setOnClickListener(v -> chatInput.getText().insert(Math.max(0, chatInput.getSelectionStart()), emoji));
-            emojiRow.addView(choice, new LinearLayout.LayoutParams(0, dp(34), 1));
-        }
         chatPanel.addView(emojiRow); mainLayout.addView(chatPanel, new LinearLayout.LayoutParams(-1, -2));
         chatPanel.setVisibility(View.GONE);
     }
@@ -203,7 +199,7 @@ public class MainActivity extends Activity {
         if (chatOpen && visible) keyboardSeen = true;
         chatScroll.setVisibility(visible ? View.GONE : View.VISIBLE);
         // Android's landscape keyboard can otherwise turn into a full-screen text editor.
-        emojiRow.setVisibility(View.VISIBLE);
+        emojiRow.setVisibility(View.GONE);
         if (chatOpen && keyboardSeen && !visible) root.post(() -> { if (chatOpen && !imeVisible) closeChat(); });
     }
     void updateLayout() {
@@ -274,15 +270,23 @@ public class MainActivity extends Activity {
         if (!watching) { show("Entre em uma sala primeiro."); return; }
         chatOpen = true; keyboardSeen = false; chatPanel.setVisibility(View.VISIBLE); unreadChat = false;
         updateChatButtons(); ui.removeCallbacks(hideControls); viewerBar.setVisibility(View.GONE); showSystemBars();
-        chatInput.requestFocus();
+        setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_PORTRAIT);
+        showChatKeyboard();
         resetChatIdle();
-        chatInput.postDelayed(() -> { if (chatOpen) ((InputMethodManager)getSystemService(INPUT_METHOD_SERVICE)).showSoftInput(chatInput, InputMethodManager.SHOW_IMPLICIT); }, 150);
+    }
+    void showChatKeyboard() {
+        chatInput.requestFocus();
+        chatInput.postDelayed(() -> {
+            if (!chatOpen || getResources().getConfiguration().orientation != Configuration.ORIENTATION_PORTRAIT) return;
+            ((InputMethodManager)getSystemService(INPUT_METHOD_SERVICE)).showSoftInput(chatInput, InputMethodManager.SHOW_IMPLICIT);
+        }, 250);
     }
     void closeChat() {
         ui.removeCallbacks(idleChat);
         chatOpen = false; keyboardSeen = false; chatPanel.setVisibility(View.GONE);
         ((InputMethodManager)getSystemService(INPUT_METHOD_SERVICE)).hideSoftInputFromWindow(chatInput.getWindowToken(), 0);
         chatInput.clearFocus(); screen.requestFocus();
+        if (watching) setRequestedOrientation(fullscreen ? ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE : ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED);
         if (fullscreen) applyImmersive();
         if (watching) revealControls();
     }
@@ -321,6 +325,7 @@ public class MainActivity extends Activity {
     }
     @Override public void onConfigurationChanged(Configuration config) {
         super.onConfigurationChanged(config); updateLayout(); root.requestApplyInsets();
+        if (chatOpen) { keyboardSeen = false; showChatKeyboard(); resetChatIdle(); }
         if (fullscreen && !chatOpen) applyImmersive();
     }
     @Override public void onWindowFocusChanged(boolean focused) {

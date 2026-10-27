@@ -110,6 +110,7 @@ final class HostChatOverlay {
         input = new EditText(context); input.setSingleLine(true); input.setTextSize(16); input.setHint("Mensagem");
         input.setTextColor(0xffffffff); input.setHintTextColor(0xffbbbbbb);
         input.setContentDescription("Mensagem de quem transmite"); input.setFilters(new InputFilter[]{new InputFilter.LengthFilter(280)});
+        input.setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_FLAG_CAP_SENTENCES | android.text.InputType.TYPE_TEXT_FLAG_AUTO_CORRECT);
         input.setImeOptions(EditorInfo.IME_ACTION_SEND | EditorInfo.IME_FLAG_NO_EXTRACT_UI | EditorInfo.IME_FLAG_NO_FULLSCREEN);
         input.setText(draft); input.setSelection(Math.min(draftCursor, input.length()));
         input.addTextChangedListener(new TextWatcher() {
@@ -122,15 +123,6 @@ final class HostChatOverlay {
         Button send = compactButton("Enviar"); send.setOnClickListener(v -> send()); row.addView(send, new LinearLayout.LayoutParams(dp(70), dp(44)));
         Button close = compactButton("×"); close.setContentDescription("Fechar chat flutuante"); close.setOnClickListener(v -> closeComposer());
         row.addView(close, new LinearLayout.LayoutParams(dp(44), dp(44))); composer.addView(row);
-        LinearLayout emojis = new LinearLayout(context);
-        for (String emoji : new String[]{"😀", "😂", "😍", "❤️", "👍"}) {
-            Button b = compactButton(emoji); b.setOnClickListener(v -> {
-                resetIdleTimeout();
-                if (input != null) input.getText().insert(Math.max(0, input.getSelectionStart()), emoji);
-            });
-            emojis.addView(b, new LinearLayout.LayoutParams(0, dp(32), 1));
-        }
-        composer.addView(emojis);
         composer.setOnApplyWindowInsetsListener((view, insets) -> {
             if (Build.VERSION.SDK_INT >= 30) {
                 boolean visible = insets.isVisible(WindowInsets.Type.ime());

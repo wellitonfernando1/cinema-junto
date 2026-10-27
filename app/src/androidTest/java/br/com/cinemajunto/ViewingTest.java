@@ -85,13 +85,17 @@ public class ViewingTest {
     }
     @Test public void keyboardShrinksMovieAndBackRestoresFullscreen() throws Exception {
         startFilm(); fullscreen(); int height = activity.screen.getHeight();
+        Thread receiver = activity.playback.worker; int generation = activity.playbackGeneration;
         main(() -> activity.openChat());
         until("Keyboard never opened", () -> activity.imeVisible);
-        until("Movie did not shrink above the keyboard", () -> activity.screen.getHeight() < height && activity.screen.getHeight() > activity.dp(70));
+        until("Chat must use portrait", () -> activity.getResources().getConfiguration().orientation == Configuration.ORIENTATION_PORTRAIT);
+        assertSame(receiver, activity.playback.worker); assertEquals(generation, activity.playbackGeneration);
+        assertTrue("Film must remain visible above the native keyboard", activity.screen.getHeight() > activity.dp(70));
+        assertTrue("Native system keyboard missing", device.hasObject(By.pkg("com.android.inputmethod.latin")));
         assertTrue("Chat obscures too much of the film", activity.chatPanel.getHeight() <= activity.dp(100));
         assertFilmVisible("film-with-keyboard");
         device.pressBack(); until("Chat did not close with the keyboard", () -> !activity.chatOpen && !activity.imeVisible);
-        until("Movie did not reclaim the screen", () -> activity.screen.getHeight() >= height - activity.dp(30));
+        until("Movie did not reclaim landscape", () -> activity.getResources().getConfiguration().orientation == Configuration.ORIENTATION_LANDSCAPE && activity.screen.getHeight() >= height - activity.dp(30));
         assertTrue(activity.fullscreen); assertTrue(activity.watching); assertFilmVisible("fullscreen-restored");
     }
     @Test public void incomingMessageIsSmallAndDoesNotInterruptMovie() throws Exception {

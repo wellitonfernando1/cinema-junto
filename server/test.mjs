@@ -4,6 +4,8 @@ import { once } from 'node:events';
 import { WebSocket } from 'ws';
 import { createRelay } from './server.mjs';
 
+const firstViewer = room => room.viewers.keys().next().value;
+const firstState = room => room.viewers.values().next().value;
 const inboxes = new WeakMap();
 function inbox(ws) {
   const messages = [], waiters = [];
@@ -56,7 +58,7 @@ async function rejectedJoin(url, message, code = 1008, reason, options = {}) {
   assert.equal(error.message, gotReason.toString()); assert.deepEqual(events, ['message', 'close']);
 }
 async function leaveViewer(relay, key, viewer) {
-  const serverClosed = once(relay.rooms.get(key).viewer, 'close'); const clientClosed = once(viewer, 'close');
+  const serverClosed = once([...relay.rooms.get(key).viewers.keys()].find(ws => ws._socket.remotePort === viewer._socket.localPort), 'close'); const clientClosed = once(viewer, 'close');
   viewer.close(); await Promise.all([serverClosed, clientClosed]);
 }
 const DEVICE_A = '00000000-0000-4000-8000-000000000001';
@@ -88,7 +90,7 @@ test('transmite imagem e áudio antigos apenas para o convidado da mesma sala', 
   assert.equal(inboxes.get(otherViewer).messages.filter(entry => entry.binary).length, 0); otherHost.close();
 });
 
-test('rejeita convidado sem anfitrião, convite inválido, JSON nulo e terceiro participante', async t => {
+test('rejeita convidado sem anfitrião, convite inválido, JSON nulo e sexto participante', async t => {
   const { url } = await fixture(t);
   async function rejected(message) {
     await rejectedJoin(url, message);
@@ -97,6 +99,7 @@ test('rejeita convidado sem anfitrião, convite inválido, JSON nulo e terceiro 
   await rejected({ role: 'host', room: ['d'.repeat(64)] });
   const host = await join(url, 'host', 'd'.repeat(64));
   await join(url, 'viewer', 'd'.repeat(64));
+  for (let i = 0; i < 3; i++) await join(url, 'viewer', 'd'.repeat(64));
   await rejected({ role: 'viewer', room: 'd'.repeat(64) }); await rejected({ role: 'host', room: 'd'.repeat(64) }); host.close();
 });
 
@@ -164,7 +167,7 @@ test('congestionamento limpa a reprodução e só retoma com configuração e qu
   const config = packet(5, 0n, 2); await sendAndReceive(host, viewer, config);
   await sendAndReceive(host, viewer, packet(6, 1000n, 1));
   const room = relay.rooms.get(key); let simulatedBacklog = 2048;
-  Object.defineProperty(room.viewer, 'bufferedAmount', { configurable: true, get: () => simulatedBacklog });
+  Object.defineProperty(firstViewer(room), 'bufferedAmount', { configurable: true, get: () => simulatedBacklog });
   room.lastKeyframeRequestAt = Date.now() - 1001;
   host.send(packet(6, 2000n));
   assert.deepEqual((await nextJson(viewer, 'media-reset')).json, { type: 'media-reset' });
@@ -185,10 +188,10 @@ test('recuperação adia o aviso enquanto a fila está totalmente bloqueada e pr
   await nextJson(host, 'request-keyframe'); const config = packet(5, 0n, 2);
   await sendAndReceive(host, viewer, config); await sendAndReceive(host, viewer, packet(6, 1000n, 1));
   const room = relay.rooms.get(key); let simulatedBacklog = 1024 * 1024;
-  Object.defineProperty(room.viewer, 'bufferedAmount', { configurable: true, get: () => simulatedBacklog });
+  Object.defineProperty(firstViewer(room), 'bufferedAmount', { configurable: true, get: () => simulatedBacklog });
   room.lastKeyframeRequestAt = Date.now() - 1001;
   host.send(packet(4, 2000n)); await nextJson(host, 'request-keyframe');
-  assert.equal(room.resetPending, true);
+  assert.equal(firstState(room).resetPending, true);
   simulatedBacklog = 0; host.send(packet(6, 3000n, 1));
   await nextJson(viewer, 'media-reset'); assert.deepEqual((await nextBinary(viewer)).data, config);
   assert.deepEqual((await nextBinary(viewer)).data, packet(6, 3000n, 1));
@@ -242,9 +245,9 @@ test('microfone exige autorização da sala, bloqueia colisões e rejeita PCM in
   viewer.send(JSON.stringify({ type: 'talk', active: true }));
   await expectTalk(viewer, true, 'host');
   viewer.send(packet(7));
-  const cannotStop = once(relay.rooms.get(key).viewer, 'message');
+  const cannotStop = once(firstViewer(relay.rooms.get(key)), 'message');
   viewer.send(JSON.stringify({ type: 'talk', active: false })); await cannotStop;
-  assert.equal(relay.rooms.get(key).talker, 'host');
+  assert.equal(relay.rooms.get(key).talker, relay.rooms.get(key).host);
   for (const data of [packet(7, -1n), packet(7, 2000n, 1), packet(7, 2000n, 0, Buffer.alloc(6402)), packet(7, 2000n, 0, Buffer.from([1])), Buffer.from([7, 1])]) host.send(data);
   await sendAndReceive(host, viewer, packet(7, 3000n));
   await barrier(host, viewer);
@@ -262,7 +265,7 @@ test('microfone para sozinho após o limite de tempo e não aceita áudio poster
   await expectTalk(host, true, 'viewer'); await expectTalk(viewer, true, 'viewer');
   await expectTalk(host, false, 'viewer'); await expectTalk(viewer, false, 'viewer');
   assert.equal(relay.rooms.get(key).talker, null);
-  const received = once(relay.rooms.get(key).viewer, 'message'); viewer.send(packet(7)); await received;
+  const received = once(firstViewer(relay.rooms.get(key)), 'message'); viewer.send(packet(7)); await received;
   await barrier(host, viewer);
   assert.equal(inboxes.get(host).messages.filter(entry => entry.binary).length, 0);
 });
@@ -290,9 +293,9 @@ test('fila de voz congestionada descarta áudio sem reiniciar a transmissão do 
   host.send(JSON.stringify({ type: 'talk', active: true }));
   await expectTalk(host, true, 'host'); await expectTalk(viewer, true, 'host');
   const room = relay.rooms.get(key); let simulatedBacklog = 2048;
-  Object.defineProperty(room.viewer, 'bufferedAmount', { configurable: true, get: () => simulatedBacklog });
+  Object.defineProperty(firstViewer(room), 'bufferedAmount', { configurable: true, get: () => simulatedBacklog });
   const dropped = once(room.host, 'message'); host.send(packet(7, 2000n)); await dropped;
-  assert.equal(room.waitingKeyframe, false); simulatedBacklog = 0;
+  assert.equal(firstState(room).waitingKeyframe, false); simulatedBacklog = 0;
   await sendAndReceive(host, viewer, packet(7, 3000n));
   await sendAndReceive(host, viewer, packet(6, 3000n));
   assert.equal(inboxes.get(viewer).messages.filter(entry => entry.binary || entry.json?.type === 'media-reset').length, 0);
@@ -306,24 +309,23 @@ test('senha ocupada, senha errada e identificação inválida têm mensagens cla
   await rejectedJoin(url, { role: 'viewer', room: key, device: 'not-a-uuid' }, 1008, 'Identificação do aparelho inválida.');
   await rejectedJoin(url, { role: 'host', room: 'f'.repeat(64), device: null }, 1008, 'Identificação do aparelho inválida.');
   await rejectedJoin(url, { role: 'viewer', room: key, device: DEVICE_A }, 1008, 'Use outro aparelho para assistir nesta sala.');
-  assert.equal(relay.rooms.size, 1); assert.equal(relay.rooms.get(key).pinnedViewerDevice, null);
+  assert.equal(relay.rooms.size, 1); assert.equal(relay.rooms.get(key).viewers.size, 0);
   assert.equal(relay.rooms.get(key).deviceMode, true); assert.equal(relay.rooms.get(key).hostDevice, DEVICE_A);
 });
 
-test('sala nova substitui a conexão do aparelho vinculado e recusa outro aparelho mesmo depois da desconexão', async t => {
+test('reconectar substitui só o próprio aparelho e ignora mensagens da conexão antiga', async t => {
   const { url, relay } = await fixture(t); const key = 'e'.repeat(64);
   const host = await join(url, 'host', key, DEVICE_A); const viewer = await join(url, 'viewer', key, DEVICE_B);
-  await nextJson(host, 'request-keyframe'); assert.equal(relay.rooms.get(key).pinnedViewerDevice, DEVICE_B);
-  await rejectedJoin(url, { role: 'viewer', room: key, device: DEVICE_C }, 1008, 'Esta sala já está ligada a outro aparelho.');
+  await nextJson(host, 'request-keyframe'); assert.equal(firstViewer(relay.rooms.get(key)).device, DEVICE_B);
   viewer.send(JSON.stringify({ type: 'talk', active: true }));
   await expectTalk(host, true, 'viewer'); await expectTalk(viewer, true, 'viewer');
-  const room = relay.rooms.get(key), oldServer = room.viewer;
+  const room = relay.rooms.get(key), oldServer = firstViewer(room);
   const closeOld = oldServer.close.bind(oldServer); let requestedClose;
   // Keep the old transport open to exercise queued frames and a delayed close event.
   oldServer.close = (...args) => { requestedClose = args; };
   const replacement = await join(url, 'viewer', key, DEVICE_B.toUpperCase());
-  const replacementServer = room.viewer;
-  assert.notEqual(replacementServer, oldServer); assert.equal(room.pinnedViewerDevice, DEVICE_B);
+  const replacementServer = firstViewer(room);
+  assert.notEqual(replacementServer, oldServer); assert.equal(firstViewer(room).device, DEVICE_B);
   assert.deepEqual(requestedClose, [1000, 'Conexão reaberta no seu aparelho.']);
   await expectTalk(host, false, 'viewer'); await expectTalk(viewer, false, 'viewer');
   await nextJson(host, 'request-keyframe');
@@ -347,24 +349,25 @@ test('sala nova substitui a conexão do aparelho vinculado e recusa outro aparel
   oldServer.close = closeOld; closeOld(...requestedClose);
   const [code, reason] = await oldClosed; await oldServerClosed;
   assert.equal(code, 1000); assert.equal(reason.toString(), 'Conexão reaberta no seu aparelho.');
-  assert.equal(room.viewer, replacementServer); assert.equal(room.talker, 'viewer');
+  assert.equal(firstViewer(room), replacementServer); assert.equal(room.talker, replacementServer);
   await sendAndReceive(replacement, host, packet(7, 11000n));
   replacement.send(JSON.stringify({ type: 'talk', active: false }));
   await expectTalk(host, false, 'viewer'); await expectTalk(replacement, false, 'viewer');
   await leaveViewer(relay, key, replacement);
-  await rejectedJoin(url, { role: 'viewer', room: key, device: DEVICE_C }, 1008, 'Esta sala já está ligada a outro aparelho.');
   await rejectedJoin(url, { role: 'viewer', room: key }, 1008, 'Atualize o aplicativo para entrar nesta sala.');
   const rejoined = await join(url, 'viewer', key, DEVICE_B.toUpperCase()); await nextJson(host, 'request-keyframe');
   await sendAndReceive(host, rejoined, Buffer.from([1, 42, 43]));
-  assert.equal(relay.rooms.get(key).pinnedViewerDevice, DEVICE_B);
+  assert.equal(firstViewer(relay.rooms.get(key)).device, DEVICE_B);
 });
 
-test('salas antigas continuam aceitando versões antigas e não permitem dois convidados simultâneos', async t => {
+test('salas antigas continuam aceitando versões antigas até cinco participantes', async t => {
   const { url, relay } = await fixture(t); const key = 'f'.repeat(64);
   const host = await join(url, 'host', key); const viewer = await join(url, 'viewer', key, DEVICE_B);
   await nextJson(host, 'request-keyframe');
-  assert.equal(relay.rooms.get(key).deviceMode, false); assert.equal(relay.rooms.get(key).pinnedViewerDevice, null);
-  await rejectedJoin(url, { role: 'viewer', room: key }, 1008, 'Sala ocupada');
+  assert.equal(relay.rooms.get(key).deviceMode, false); assert.equal(relay.rooms.get(key).viewers.size, 1);
+  const extra = await join(url, 'viewer', key);
+  assert.equal(relay.rooms.get(key).viewers.size, 2);
+  await leaveViewer(relay, key, extra);
   await leaveViewer(relay, key, viewer); const legacyViewer = await join(url, 'viewer', key);
   await nextJson(host, 'request-keyframe'); await sendAndReceive(host, legacyViewer, Buffer.from([2, 42, 43]));
 });
@@ -376,9 +379,8 @@ test('o vínculo dos aparelhos e as mensagens de uma senha ficam isolados das ou
   await nextJson(host, 'request-keyframe'); await nextJson(otherHost, 'request-keyframe');
   await sendAndReceive(host, viewer, Buffer.from([1, 42, 43])); await barrier(host, viewer);
   await leaveViewer(relay, keyA, viewer);
-  await rejectedJoin(url, { role: 'viewer', room: keyA, device: DEVICE_D }, 1008, 'Esta sala já está ligada a outro aparelho.');
-  assert.equal(relay.rooms.get(keyA).pinnedViewerDevice, DEVICE_B);
-  assert.equal(relay.rooms.get(keyB).pinnedViewerDevice, DEVICE_D);
+  assert.equal(relay.rooms.get(keyA).viewers.size, 0);
+  assert.equal(firstViewer(relay.rooms.get(keyB)).device, DEVICE_D);
   assert.equal(inboxes.get(otherViewer).messages.length, 0);
   await sendAndReceive(otherHost, otherViewer, Buffer.from([2, 42, 43]));
 });
@@ -410,11 +412,58 @@ test('reserva normal de rede não descarta quadros nem reinicia o filme', async 
   await sendAndReceive(host, viewer, packet(5, 0n, 2));
   await sendAndReceive(host, viewer, packet(6, 1000n, 1));
   const room = relay.rooms.get(key);
-  Object.defineProperty(room.viewer, 'bufferedAmount', { configurable: true, get: () => 700 * 1024 });
+  Object.defineProperty(firstViewer(room), 'bufferedAmount', { configurable: true, get: () => 700 * 1024 });
   for (let i = 0; i < 12; i++) {
     await sendAndReceive(host, viewer, packet(6, BigInt(2000 + i * 1000)));
     await sendAndReceive(host, viewer, packet(4, BigInt(2000 + i * 1000)));
   }
-  assert.equal(room.waitingKeyframe, false);
+  assert.equal(firstState(room).waitingKeyframe, false);
   assert.equal(inboxes.get(viewer).messages.filter(entry => entry.json?.type === 'media-reset').length, 0);
+});
+
+test('cinco aparelhos recebem filme, chat e voz; sexto é recusado e saída libera vaga', async t => {
+  const { url, relay } = await fixture(t); const key = 'a1'.repeat(32);
+  const host = await join(url, 'host', key, DEVICE_A);
+  const viewers = [];
+  for (let i = 2; i <= 5; i++) viewers.push(await join(url, 'viewer', key, `00000000-0000-4000-8000-${String(i).padStart(12,'0')}`));
+  await rejectedJoin(url, {role:'viewer', room:key, device:'00000000-0000-4000-8000-000000000006'}, 1008, 'Sala cheia. O limite é de cinco aparelhos.');
+  for (const data of [packet(5,0n,2), packet(6,1000n,1), packet(4,1000n)]) {
+    host.send(data);
+    for (const viewer of viewers) assert.deepEqual((await nextBinary(viewer)).data, data);
+  }
+  viewers[0].send(JSON.stringify({type:'chat',text:'Mensagem do segundo celular'}));
+  for (const peer of [host,...viewers]) {
+    const message = (await nextJson(peer,'chat')).json;
+    assert.equal(message.text,'Mensagem do segundo celular');
+    assert.equal(message.from, peer === host || peer === viewers[0] ? 'viewer' : 'host');
+  }
+  viewers[0].send(JSON.stringify({type:'talk',active:true}));
+  for (const peer of [host,...viewers]) await expectTalk(peer,true,peer === host || peer === viewers[0] ? 'viewer':'host');
+  const voice = packet(7,2000n); viewers[0].send(voice);
+  for (const peer of [host,...viewers.slice(1)]) assert.deepEqual((await nextBinary(peer)).data,voice);
+  viewers[1].send(JSON.stringify({type:'talk',active:false}));
+  const stopped = once([...relay.rooms.get(key).viewers.keys()][1],'message');
+  viewers[1].send(packet(7,3000n)); await stopped;
+  assert.equal(relay.rooms.get(key).talker,[...relay.rooms.get(key).viewers.keys()][0]);
+  await leaveViewer(relay,key,viewers[0]);
+  for (const peer of [host,...viewers.slice(1)]) await expectTalk(peer,false,peer === host ? 'viewer':'host');
+  const replacement = await join(url,'viewer',key,'00000000-0000-4000-8000-000000000006');
+  const closed = [replacement,...viewers.slice(1)].map(peer=>once(peer,'close'));
+  host.close(); await Promise.all(closed);
+});
+
+test('entrada e congestionamento de um convidado não reiniciam os demais', async t => {
+  const {url,relay} = await fixture(t,{mediaBufferLimitBytes:1024}); const key='b1'.repeat(32);
+  const host=await join(url,'host',key); const a=await join(url,'viewer',key);
+  const config=packet(5,0n,2); await sendAndReceive(host,a,config); await sendAndReceive(host,a,packet(6,1000n,1));
+  const b=await join(url,'viewer',key);
+  await sendAndReceive(host,a,packet(6,2000n));
+  assert.equal(inboxes.get(b).messages.filter(e=>e.binary).length,0);
+  host.send(packet(6,3000n,1)); await nextBinary(a); assert.deepEqual((await nextBinary(b)).data,config); await nextBinary(b);
+  const serverA=[...relay.rooms.get(key).viewers.keys()][0]; let backlog=2048;
+  Object.defineProperty(serverA,'bufferedAmount',{get:()=>backlog});
+  await sendAndReceive(host,b,packet(6,4000n)); await nextJson(a,'media-reset');
+  await sendAndReceive(host,b,packet(4,4000n));
+  assert.equal(inboxes.get(b).messages.filter(e=>e.json?.type==='media-reset').length,0);
+  backlog=0; host.send(packet(6,5000n,1)); await nextBinary(b); assert.deepEqual((await nextBinary(a)).data,config); await nextBinary(a);
 });

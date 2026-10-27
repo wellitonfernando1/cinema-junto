@@ -43,38 +43,45 @@ export function createRelay({ ttlMs = 2 * 60 * 60 * 1000, mediaBufferLimitBytes 
     if (!force && now - room.lastKeyframeRequestAt < 1000) return;
     if (send(room.host, JSON.stringify({ type: 'request-keyframe' }))) room.lastKeyframeRequestAt = now;
   };
-  const resetMedia = room => {
-    room.waitingKeyframe = true;
-    room.needsConfig = true;
-    room.resetPending = true;
-    if (send(room.viewer, JSON.stringify({ type: 'media-reset' }))) room.resetPending = false;
+  const participants = room => [room.host, ...room.viewers.keys()].filter(Boolean);
+  const member = (room, ws) => room && (room.host === ws || room.viewers.has(ws));
+  // Keep the two-role wire protocol compatible with installed clients. Each recipient
+  // sees their own role for an echo and the opposite role for another participant.
+  const fromFor = (room, source, recipient) => {
+    const role = recipient === room.host ? 'host' : 'viewer';
+    return source === recipient ? role : role === 'host' ? 'viewer' : 'host';
+  };
+  const resetMedia = (room, viewer, state) => {
+    state.waitingKeyframe = true; state.needsConfig = true; state.resetPending = true;
+    if (send(viewer, JSON.stringify({ type: 'media-reset' }))) state.resetPending = false;
     requestKeyframe(room);
   };
-  const broadcastTalk = (room, active, from) => {
-    const message = JSON.stringify({ type: 'talk', active, from });
-    send(room.host, message); send(room.viewer, message);
+  const broadcastTalk = (room, active, source) => {
+    for (const peer of participants(room))
+      send(peer, JSON.stringify({ type: 'talk', active, from: fromFor(room, source, peer) }));
   };
   const endTalk = room => {
     if (!room.talker) return;
-    const from = room.talker; room.talker = null;
+    const source = room.talker; room.talker = null;
     clearTimeout(room.talkTimer); room.talkTimer = null;
-    broadcastTalk(room, false, from);
+    broadcastTalk(room, false, source);
   };
-  const forwardVoice = (room, role, data) => {
-    if (room.talker !== role || data.length <= 13 || data.length > 6413 || (data.length - 13) % 2 !== 0 ||
+  const forwardVoice = (room, source, data) => {
+    if (room.talker !== source || data.length <= 13 || data.length > 6413 || (data.length - 13) % 2 !== 0 ||
         data.readBigInt64BE(1) < 0n || data.readUInt32BE(9) !== 0) return;
     const now = Date.now();
     room.voiceTokens = Math.min(64000, room.voiceTokens + Math.max(0, now - room.voiceUpdatedAt) * 32);
     room.voiceUpdatedAt = now;
     if (room.voiceTokens < data.length - 13) return;
     room.voiceTokens -= data.length - 13;
-    const peer = role === 'host' ? room.viewer : room.host;
-    if (peer?.bufferedAmount < Math.min(mediaBufferLimitBytes, 256 * 1024)) send(peer, data, true);
+    for (const peer of participants(room))
+      if (peer !== source && peer.bufferedAmount < Math.min(mediaBufferLimitBytes, 256 * 1024)) send(peer, data, true);
   };
   const forwardMedia = (room, data) => {
     const type = data[0];
     if ([1, 2].includes(type)) {
-      if (data.length >= 2 && room.viewer?.bufferedAmount < mediaBufferLimitBytes) send(room.viewer, data, true);
+      for (const viewer of room.viewers.keys())
+        if (data.length >= 2 && viewer.bufferedAmount < mediaBufferLimitBytes) send(viewer, data, true);
       return;
     }
     // New media packets have a kind, a monotonic timestamp in microseconds, and codec flags.
@@ -82,43 +89,45 @@ export function createRelay({ ttlMs = 2 * 60 * 60 * 1000, mediaBufferLimitBytes 
     const payloadSize = data.length - 13;
     if (type === 4 && (payloadSize > 32 * 1024 || payloadSize % 2 !== 0)) return;
     if (type === 5 && payloadSize > 64 * 1024) return;
-    const wasStreaming = !room.waitingKeyframe;
     let changedConfig = false;
     if (type === 5) {
       changedConfig = !room.config?.subarray(13).equals(data.subarray(13));
       room.config = Buffer.from(data);
-      if (changedConfig) { room.waitingKeyframe = true; room.needsConfig = true; }
+      if (changedConfig) for (const state of room.viewers.values()) { state.waitingKeyframe = true; state.needsConfig = true; }
     }
-    const viewer = room.viewer;
+    for (const [viewer, state] of room.viewers) forwardViewer(room, viewer, state, data, type, changedConfig);
+  };
+  const forwardViewer = (room, viewer, state, data, type, changedConfig) => {
+    const wasStreaming = !state.waitingKeyframe;
     if (viewer?.readyState !== WebSocket.OPEN) return;
     if (viewer.bufferedAmount >= mediaBufferLimitBytes) {
       // Once one AVC frame is lost, dependent frames cannot be decoded safely.
       // Audio is also discarded until a new keyframe starts the shared timeline.
-      if (wasStreaming || !room.needsConfig) resetMedia(room);
+      if (wasStreaming || !state.needsConfig) resetMedia(room, viewer, state);
       else requestKeyframe(room);
       return;
     }
-    if (room.resetPending) {
+    if (state.resetPending) {
       if (!send(viewer, JSON.stringify({ type: 'media-reset' }))) return;
-      room.resetPending = false;
+      state.resetPending = false;
     }
     if (type === 5) {
-      if ((changedConfig || room.needsConfig) && send(viewer, data, true)) room.needsConfig = false;
+      if ((changedConfig || state.needsConfig) && send(viewer, data, true)) state.needsConfig = false;
       return;
     }
     if (type === 4) {
-      if (!room.waitingKeyframe && data.readBigInt64BE(1) >= room.resumeTimestamp) send(viewer, data, true);
+      if (!state.waitingKeyframe && data.readBigInt64BE(1) >= state.resumeTimestamp) send(viewer, data, true);
       return;
     }
-    if (room.waitingKeyframe) {
+    if (state.waitingKeyframe) {
       if (!(data.readUInt32BE(9) & 1) || !room.config) { requestKeyframe(room); return; }
-      if (room.needsConfig) {
+      if (state.needsConfig) {
         if (!send(viewer, room.config, true)) return;
-        room.needsConfig = false;
+        state.needsConfig = false;
       }
       if (send(viewer, data, true)) {
-        room.waitingKeyframe = false;
-        room.resumeTimestamp = data.readBigInt64BE(1);
+        state.waitingKeyframe = false;
+        state.resumeTimestamp = data.readBigInt64BE(1);
       }
       return;
     }
@@ -162,13 +171,12 @@ export function createRelay({ ttlMs = 2 * 60 * 60 * 1000, mediaBufferLimitBytes 
         let room = rooms.get(key);
         if (role === 'host' && !room) {
           if (rooms.size >= 50) { rejectJoin(1013, 'Servidor ocupado'); return; }
-          room = { host: null, viewer: null, timer: null, config: null, waitingKeyframe: true,
-            needsConfig: true, resetPending: false, resumeTimestamp: 0n, lastKeyframeRequestAt: -Infinity,
+          room = { host: null, viewers: new Map(), timer: null, config: null, lastKeyframeRequestAt: -Infinity,
             talker: null, talkTimer: null, voiceTokens: 64000, voiceUpdatedAt: 0,
-            deviceMode: Boolean(device), hostDevice: device || null, pinnedViewerDevice: null };
+            deviceMode: Boolean(device), hostDevice: device || null };
           room.timer = setTimeout(() => {
             endTalk(room);
-            room.host?.close(1000, 'Sala expirada'); room.viewer?.close(1000, 'Sala expirada'); rooms.delete(key);
+            for (const peer of participants(room)) peer.close(1000, 'Sala expirada'); rooms.delete(key);
           }, ttlMs);
           room.timer.unref(); rooms.set(key, room);
         }
@@ -177,39 +185,42 @@ export function createRelay({ ttlMs = 2 * 60 * 60 * 1000, mediaBufferLimitBytes 
         if (role === 'viewer' && room.deviceMode) {
           if (!device) { rejectJoin(1008, 'Atualize o aplicativo para entrar nesta sala.'); return; }
           if (device === room.hostDevice) { rejectJoin(1008, 'Use outro aparelho para assistir nesta sala.'); return; }
-          if (room.pinnedViewerDevice && device !== room.pinnedViewerDevice) { rejectJoin(1008, 'Esta sala já está ligada a outro aparelho.'); return; }
-          if (room.viewer && device === room.pinnedViewerDevice) {
-            endTalk(room);
-            const oldViewer = room.viewer; room.viewer = null;
+        }
+        if (role === 'viewer') {
+          const oldViewer = device && [...room.viewers.keys()].find(peer => peer.device === device);
+          if (oldViewer) {
+            if (room.talker === oldViewer) endTalk(room);
+            room.viewers.delete(oldViewer);
             oldViewer.close(1000, 'Conexão reaberta no seu aparelho.');
           }
-        }
-        if (room[role]) { rejectJoin(1008, 'Sala ocupada'); return; }
-        if (role === 'viewer' && room.deviceMode && !room.pinnedViewerDevice) room.pinnedViewerDevice = device;
-        joined = true; clearTimeout(deadline); room[role] = ws;
+          if (room.viewers.size >= 4) { rejectJoin(1008, 'Sala cheia. O limite é de cinco aparelhos.', false); return; }
+          ws.device = device;
+          room.viewers.set(ws, { waitingKeyframe: true, needsConfig: true, resetPending: false, resumeTimestamp: 0n });
+        } else room.host = ws;
+        joined = true; clearTimeout(deadline);
         send(ws, JSON.stringify({ joined: true, status: role === 'host' ? 'Sala criada. Compartilhe a senha com seu amigo.' : 'Conectado. Aguardando imagem e som.' }));
-        if (room.viewer) {
-          room.waitingKeyframe = true; room.needsConfig = true; room.resetPending = false; room.resumeTimestamp = 0n;
-          send(room.host, JSON.stringify({ status: 'Seu amigo entrou na sala.' }));
+        if (role === 'viewer') {
+          send(room.host, JSON.stringify({ status: `Participantes: ${room.viewers.size + 1}/5.` }));
           requestKeyframe(room, true);
+          if (room.talker) send(ws, JSON.stringify({ type: 'talk', active: true, from: fromFor(room, room.talker, ws) }));
         }
         return;
       }
       const room = rooms.get(key);
-      if (binary && data[0] === 7 && room?.[role] === ws) { forwardVoice(room, role, data); return; }
+      if (binary && data[0] === 7 && member(room, ws)) { forwardVoice(room, ws, data); return; }
       if (role === 'host' && binary && room?.host === ws && data.length >= 2) forwardMedia(room, data);
-      if (!binary && data.length <= 2048 && room?.[role] === ws) {
+      if (!binary && data.length <= 2048 && member(room, ws)) {
         let msg;
         try { msg = JSON.parse(data.toString()); } catch { return; }
         if (!msg || typeof msg !== 'object' || Array.isArray(msg)) return;
         if (msg.type === 'talk') {
           if (typeof msg.active !== 'boolean') return;
-          if (!msg.active) { if (room.talker === role) endTalk(room); return; }
-          if (room.talker) { send(ws, JSON.stringify({ type: 'talk', active: true, from: room.talker })); return; }
+          if (!msg.active) { if (room.talker === ws) endTalk(room); return; }
+          if (room.talker) { send(ws, JSON.stringify({ type: 'talk', active: true, from: fromFor(room, room.talker, ws) })); return; }
           if (Date.now() - lastTalkStartAt < 250) { send(ws, JSON.stringify({ type: 'talk', active: false, from: role })); return; }
-          lastTalkStartAt = Date.now(); room.talker = role; room.voiceTokens = 64000; room.voiceUpdatedAt = lastTalkStartAt;
+          lastTalkStartAt = Date.now(); room.talker = ws; room.voiceTokens = 64000; room.voiceUpdatedAt = lastTalkStartAt;
           room.talkTimer = setTimeout(() => endTalk(room), talkTtlMs); room.talkTimer.unref();
-          broadcastTalk(room, true, role); return;
+          broadcastTalk(room, true, ws); return;
         }
         if (msg.type === 'request-keyframe') {
           if (role === 'viewer') requestKeyframe(room);
@@ -219,14 +230,8 @@ export function createRelay({ ttlMs = 2 * 60 * 60 * 1000, mediaBufferLimitBytes 
         const text = msg.text.trim();
         if (!text || Array.from(text).length > 280 || Date.now() - lastChatAt < 250) return;
         lastChatAt = Date.now();
-        const peer = role === 'host' ? room.viewer : room.host;
-        if (!peer || peer.readyState !== WebSocket.OPEN) {
-          send(ws, JSON.stringify({ status: 'Seu amigo ainda não está conectado.' }));
-          return;
-        }
-        const packet = JSON.stringify({ type: 'chat', from: role, text });
-        send(peer, packet);
-        send(ws, packet);
+        for (const peer of participants(room))
+          send(peer, JSON.stringify({ type: 'chat', from: fromFor(room, ws, peer), text }));
       }
     });
     ws.on('error', () => {});
@@ -234,12 +239,13 @@ export function createRelay({ ttlMs = 2 * 60 * 60 * 1000, mediaBufferLimitBytes 
       clearTimeout(deadline);
       if (!joined) return;
       const room = rooms.get(key);
-      if (!room || room[role] !== ws) return;
-      endTalk(room);
-      room[role] = null;
+      if (!member(room, ws)) return;
+      if (role === 'host' || room.talker === ws || room.viewers.size === 1) endTalk(room);
+      if (role === 'viewer') room.viewers.delete(ws);
       if (role === 'host') {
-        clearTimeout(room.timer); rooms.delete(key); room.viewer?.close(1000, 'Transmissão encerrada');
-      } else send(room.host, JSON.stringify({ status: 'Seu amigo saiu. Pode enviar a senha novamente.' }));
+        clearTimeout(room.timer); rooms.delete(key);
+        for (const viewer of room.viewers.keys()) viewer.close(1000, 'Transmissão encerrada');
+      } else send(room.host, JSON.stringify({ status: `Participantes: ${room.viewers.size + 1}/5.` }));
     });
   });
   const heartbeat = setInterval(() => {
