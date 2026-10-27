@@ -253,7 +253,7 @@ public class CaptureService extends Service {
         if (!limits.areSizeAndRateSupported(width, height, captureFps)) captureFps = 24;
         if (!limits.areSizeAndRateSupported(width, height, captureFps))
             throw new IllegalStateException("Resolução de captura não suportada");
-        status("Teste " + BuildConfig.TRIAL + ": " + width + "×" + height + " · até " + captureFps + " fps");
+        status("Transmissão: " + width + "×" + height + " · até " + captureFps + " fps");
         MediaFormat format = MediaFormat.createVideoFormat(MediaFormat.MIMETYPE_VIDEO_AVC, width, height);
         format.setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface);
         format.setInteger(MediaFormat.KEY_BIT_RATE, Math.min(BuildConfig.CAPTURE_BITRATE, limits.getBitrateRange().getUpper()));

@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
-trial="${1:-A}"
-package="br.com.cinemajunto.teste${trial,,}"
+package="br.com.cinemajunto.v18"
 mkdir -p ui-results
 collect_results() {
   adb pull /sdcard/Android/data/$package/files/ui-test ui-results/screenshots || true

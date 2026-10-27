@@ -74,7 +74,7 @@ public class MainActivity extends Activity {
         controls = new LinearLayout(this); controls.setOrientation(LinearLayout.VERTICAL);
         controls.setPadding(dp(16), dp(12), dp(16), dp(12)); controls.setBackgroundColor(0xfffafafa);
         setupScroll.addView(controls); mainLayout.addView(setupScroll, new LinearLayout.LayoutParams(-1, 0, 1));
-        TextView title = new TextView(this); title.setTextColor(Color.BLACK); title.setText("Cinema " + BuildConfig.TRIAL + " · " + BuildConfig.VERSION_NAME); title.setTextSize(24); controls.addView(title);
+        TextView title = new TextView(this); title.setTextColor(Color.BLACK); title.setText("Cinema Junto · " + BuildConfig.VERSION_NAME); title.setTextSize(24); controls.addView(title);
         TextView subtitle = new TextView(this); subtitle.setTextColor(Color.BLACK); subtitle.setText("Alta qualidade · até " + BuildConfig.CAPTURE_FPS + " fps · reserva de 5 segundos"); controls.addView(subtitle);
         endpoint = new EditText(this); endpoint.setSingleLine(true); endpoint.setHint("Endereço do servidor");
         readableInput(endpoint);

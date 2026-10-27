@@ -22,7 +22,7 @@ final class PlaybackEngine implements AutoCloseable {
     long previousSourcePts = Long.MIN_VALUE;
     volatile float measuredFps;
     String diagnostics() {
-        return "Teste " + BuildConfig.VERSION_NAME + "\n" + Build.MANUFACTURER + " " + Build.MODEL
+        return "Cinema Junto " + BuildConfig.VERSION_NAME + "\n" + Build.MANUFACTURER + " " + Build.MODEL
             + " · Android " + Build.VERSION.RELEASE + "\nImagem: " + resolution
             + String.format(java.util.Locale.ROOT, "\nCadência estável detectada: %.2f fps\nReserva atual: %.1f s", measuredFps, reserveUs / 1000000.0)
             + "\nQuadros recebidos: " + receivedVideoFrames + "\nQuadros apresentados: " + presentedFrames
@@ -204,6 +204,10 @@ final class PlaybackEngine implements AutoCloseable {
         format.setByteBuffer("csd-0", ByteBuffer.wrap(config.csd0));
         if (config.csd1.length > 0) format.setByteBuffer("csd-1", ByteBuffer.wrap(config.csd1));
         format.setInteger(MediaFormat.KEY_MAX_INPUT_SIZE, StreamPacket.MAX_PACKET_SIZE);
+        // Declare the real-time workload instead of leaving the decoder at its
+        // default operating rate (often 30 fps even for a 60 fps stream).
+        format.setInteger(MediaFormat.KEY_PRIORITY, 0);
+        format.setFloat(MediaFormat.KEY_OPERATING_RATE, (float)BuildConfig.CAPTURE_FPS);
         decoder = MediaCodec.createDecoderByType(MediaFormat.MIMETYPE_VIDEO_AVC);
         decoder.configure(format, surface, null, 0);
         decoderName = decoder.getName(); resolution = config.width + "×" + config.height;
@@ -311,7 +315,7 @@ final class PlaybackEngine implements AutoCloseable {
             clockUs = videoClockUs(nowNs);
             long untilUs = output.presentationTimeUs - clockUs;
             // Submit early enough to cover brief scheduler delays without decoding at display resolution.
-            if (untilUs > 80000) break;
+            if (untilUs > 120000) break;
             // Several overdue frames released at the same instant collapse onto one
             // VSYNC. Skip frames older than one 30 fps interval plus a small margin,
             // so catch-up does not produce a burst of competing presentations.
@@ -330,6 +334,9 @@ final class PlaybackEngine implements AutoCloseable {
                 scheduledVideoFrames++; renderedFrames++; lastRenderedTimestampUs = output.presentationTimeUs;
             } else { decoder.releaseOutputBuffer(outputIndex, false); droppedVideoFrames++; }
             outputIndex = -1;
+            // Refill as output buffers become available. Waiting for the next
+            // polling cycle needlessly leaves small-buffer codecs idle at 60 fps.
+            feedVideo(clockUs);
         }
     }
     private void restart() {
