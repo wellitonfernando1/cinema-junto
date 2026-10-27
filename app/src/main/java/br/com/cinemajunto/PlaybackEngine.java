@@ -153,7 +153,7 @@ final class PlaybackEngine implements AutoCloseable {
                 }
                 reserveUs = bufferedVideoUs();
                 if (waitingForKeyFrame) requestKeyFrame();
-                Thread.sleep(4);
+                Thread.sleep(buffering ? 4 : 1);
             }
         } catch (InterruptedException ignored) {
         } catch (Exception error) {
@@ -315,7 +315,10 @@ final class PlaybackEngine implements AutoCloseable {
             clockUs = videoClockUs(nowNs);
             long untilUs = output.presentationTimeUs - clockUs;
             // Submit early enough to cover brief scheduler delays without decoding at display resolution.
-            if (untilUs > 120000) break;
+            // Older Surface pipelines retain codec buffers until presentation.
+            // Queuing many future frames can block releaseOutputBuffer and starve
+            // this same worker. Keep at most roughly two refreshes ahead at 60 fps.
+            if (untilUs > 30000) break;
             // Several overdue frames released at the same instant collapse onto one
             // VSYNC. Skip frames older than one 30 fps interval plus a small margin,
             // so catch-up does not produce a burst of competing presentations.

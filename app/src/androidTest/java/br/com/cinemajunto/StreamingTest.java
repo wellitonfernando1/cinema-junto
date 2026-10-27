@@ -247,7 +247,7 @@ public class StreamingTest {
         assertFalse("A two-second delivery pause exhausted the reserve", engine.buffering);
         assertTrue("The movie clock froze during network jitter", engine.clockUs() > before + 1800000);
         assertTrue("30 fps motion did not advance during the delivery pause", engine.renderedFrames > framesBefore + 40);
-        assertTrue("Decoder lost too many frames under buffered steady playback",
+        assertTrue("Decoder lost too many frames under buffered steady playback: " + (engine.droppedVideoFrames - droppedBefore) + "\n" + engine.diagnostics(),
             engine.droppedVideoFrames - droppedBefore < 12);
         assertTrue("Buffered fullscreen playback had a visible presentation stall: " + engine.longestPresentationGapNs,
             engine.longestPresentationGapNs < 200_000_000L);
