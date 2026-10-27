@@ -200,7 +200,7 @@ export function createRelay({ ttlMs = 2 * 60 * 60 * 1000, mediaBufferLimitBytes 
         joined = true; clearTimeout(deadline);
         send(ws, JSON.stringify({ joined: true, status: role === 'host' ? 'Sala criada. Compartilhe a senha com seu amigo.' : 'Conectado. Aguardando imagem e som.' }));
         if (role === 'viewer') {
-          send(room.host, JSON.stringify({ status: `Participantes: ${room.viewers.size + 1}/5.` }));
+          send(room.host, JSON.stringify({ status: `Seu amigo entrou na sala. Participantes: ${room.viewers.size + 1}/5.` }));
           requestKeyframe(room, true);
           if (room.talker) send(ws, JSON.stringify({ type: 'talk', active: true, from: fromFor(room, room.talker, ws) }));
         }
