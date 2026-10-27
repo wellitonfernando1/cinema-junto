@@ -45,6 +45,7 @@ public class CaptureService extends Service {
     static final int AUDIO_RATE = 44100;
     static final long MAX_SEND_QUEUE = 4 * 1024 * 1024;
     int width, height, density;
+    int widthAlignment = 2, heightAlignment = 2;
     final Handler main = new Handler(Looper.getMainLooper());
     HostChatOverlay overlay;
     volatile VoiceTalk voice;
@@ -207,8 +208,8 @@ public class CaptureService extends Service {
     }
     void dimensions(int w, int h) {
         float scale = Math.min(1f, (float)BuildConfig.CAPTURE_EDGE / Math.max(w, h));
-        width = Math.max(2, Math.round(w * scale) / 2 * 2);
-        height = Math.max(2, Math.round(h * scale) / 2 * 2);
+        width = Math.max(widthAlignment, Math.round(w * scale) / widthAlignment * widthAlignment);
+        height = Math.max(heightAlignment, Math.round(h * scale) / heightAlignment * heightAlignment);
     }
     void resizeForDisplay() {
         // Android 14+ supplies the captured region size, which may differ from the entire display.
@@ -234,6 +235,7 @@ public class CaptureService extends Service {
         encoder = MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_VIDEO_AVC);
         MediaCodecInfo.VideoCapabilities limits = encoder.getCodecInfo().getCapabilitiesForType(MediaFormat.MIMETYPE_VIDEO_AVC).getVideoCapabilities();
         // Keep resolution in both trials; compare temporal quality at the same bitrate.
+        widthAlignment = limits.getWidthAlignment(); heightAlignment = limits.getHeightAlignment();
         width = Math.max(limits.getWidthAlignment(), width / limits.getWidthAlignment() * limits.getWidthAlignment());
         height = Math.max(limits.getHeightAlignment(), height / limits.getHeightAlignment() * limits.getHeightAlignment());
         int captureFps = BuildConfig.CAPTURE_FPS;
