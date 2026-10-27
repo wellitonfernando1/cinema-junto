@@ -16,6 +16,22 @@ final class PlaybackEngine implements AutoCloseable {
         void requestKeyFrame();
         void error(String message);
     }
+    final FrameCadence cadence = new FrameCadence();
+    volatile String decoderName = "aguardando", resolution = "aguardando";
+    volatile long receivedVideoFrames, sourceGaps, rebufferings, reserveUs;
+    long previousSourcePts = Long.MIN_VALUE;
+    volatile float measuredFps;
+    String diagnostics() {
+        return "Teste " + BuildConfig.VERSION_NAME + "\n" + Build.MANUFACTURER + " " + Build.MODEL
+            + " · Android " + Build.VERSION.RELEASE + "\nImagem: " + resolution
+            + String.format(java.util.Locale.ROOT, "\nCadência estável detectada: %.2f fps\nReserva atual: %.1f s", measuredFps, reserveUs / 1000000.0)
+            + "\nQuadros recebidos: " + receivedVideoFrames + "\nQuadros apresentados: " + presentedFrames
+            + "\nQuadros descartados por atraso: " + droppedVideoFrames
+            + "\nIntervalos >100 ms na origem: " + sourceGaps + "\nRecarregamentos: " + rebufferings
+            + "\nMaior intervalo apresentado: " + longestPresentationGapNs / 1000000 + " ms"
+            + "\nDecodificador: " + decoderName
+            + "\nContadores desde a entrada; giros de tela também afetam os intervalos. Nenhum dado é enviado automaticamente.";
+    }
     final Thread worker;
     final FilmView view;
     final Listener listener;
@@ -73,7 +89,7 @@ final class PlaybackEngine implements AutoCloseable {
     void setFilmMuted(boolean muted) { filmMuted = muted; }
     long clockUs() { return currentClockUs; }
     private void state(boolean value) {
-        if (buffering != value) { buffering = value; listener.buffering(value); }
+        if (buffering != value) { if (value) rebufferings++; buffering = value; listener.buffering(value); }
     }
     private void requestKeyFrame() {
         long now = SystemClock.elapsedRealtime();
@@ -134,6 +150,7 @@ final class PlaybackEngine implements AutoCloseable {
                         track.pause(); timestampValid = false; state(true);
                     }
                 }
+                reserveUs = bufferedVideoUs();
                 if (waitingForKeyFrame) requestKeyFrame();
                 Thread.sleep(4);
             }
@@ -169,6 +186,14 @@ final class PlaybackEngine implements AutoCloseable {
                 if (!key) return;
                 waitingForKeyFrame = false; firstVideoUs = p.timestampUs;
             }
+            receivedVideoFrames++;
+            if (previousSourcePts != Long.MIN_VALUE && p.timestampUs - previousSourcePts > 100000) sourceGaps++;
+            previousSourcePts = p.timestampUs;
+            float nextFps = cadence.add(p.timestampUs);
+            if (nextFps != measuredFps) {
+                measuredFps = nextFps;
+                ui.post(() -> { if (running) view.setMovieFrameRate(nextFps); });
+            }
             video.addLast(p); latestVideoUs = Math.max(latestVideoUs, p.timestampUs);
         } else if (p.type == StreamPacket.PCM) audio.addLast(p);
     }
@@ -180,6 +205,7 @@ final class PlaybackEngine implements AutoCloseable {
         format.setInteger(MediaFormat.KEY_MAX_INPUT_SIZE, StreamPacket.MAX_PACKET_SIZE);
         decoder = MediaCodec.createDecoderByType(MediaFormat.MIMETYPE_VIDEO_AVC);
         decoder.configure(format, surface, null, 0);
+        decoderName = decoder.getName(); resolution = config.width + "×" + config.height;
         decoder.setOnFrameRenderedListener((codec, pts, ns) -> {
             if (running && codec == decoder) {
                 if (lastPresentedNs != 0 && ns > lastPresentedNs)
@@ -310,6 +336,8 @@ final class PlaybackEngine implements AutoCloseable {
         releaseDecoder(); audio.clear(); video.clear(); pcm = null; pcmOffset = 0;
         audioOriginUs = Long.MIN_VALUE; writtenFrames = 0; currentClockUs = 0; resetVideoClock();
         waitingForKeyFrame = true; started = false; latestVideoUs = Long.MIN_VALUE;
+        cadence.reset(); measuredFps = 0; previousSourcePts = Long.MIN_VALUE; reserveUs = 0;
+        ui.post(() -> { if (running) view.setMovieFrameRate(0); });
         lastPresentedNs = 0; longestPresentationGapNs = 0; state(true);
     }
     private void releaseDecoder() {
@@ -320,5 +348,6 @@ final class PlaybackEngine implements AutoCloseable {
         running = false; worker.interrupt();
         try { worker.join(500); } catch (InterruptedException ignored) {}
         ui.removeCallbacksAndMessages(null);
+        view.setMovieFrameRate(0);
     }
 }

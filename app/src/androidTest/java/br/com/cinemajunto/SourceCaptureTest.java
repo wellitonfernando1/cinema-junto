@@ -243,7 +243,7 @@ public class SourceCaptureTest {
             () -> configs.get() > 0 && frames.get() >= 3 && pcm.get() >= 3);
         StreamPacket.VideoConfig video = format.get();
         assertNotNull(video); assertTrue(video.width > 0 && video.height > 0);
-        assertTrue("Capture resolution was not bounded", Math.max(video.width, video.height) <= 960);
+        assertTrue("Capture resolution was not bounded", Math.max(video.width, video.height) <= BuildConfig.CAPTURE_EDGE);
         int oldFrames = frames.get(), oldPcm = pcm.get();
         main(() -> activity.startService(new Intent(activity, CaptureService.class).setAction("VOICE_PRESS")));
         until("Foreground microphone did not coexist with video and playback capture", 5000,

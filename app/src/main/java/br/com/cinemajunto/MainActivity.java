@@ -74,8 +74,8 @@ public class MainActivity extends Activity {
         controls = new LinearLayout(this); controls.setOrientation(LinearLayout.VERTICAL);
         controls.setPadding(dp(16), dp(12), dp(16), dp(12)); controls.setBackgroundColor(0xfffafafa);
         setupScroll.addView(controls); mainLayout.addView(setupScroll, new LinearLayout.LayoutParams(-1, 0, 1));
-        TextView title = new TextView(this); title.setTextColor(Color.BLACK); title.setText("Cinema Junto 0.16"); title.setTextSize(24); controls.addView(title);
-        TextView subtitle = new TextView(this); subtitle.setTextColor(Color.BLACK); subtitle.setText("Filme, chat, microfone e senha simples · Versão 0.16"); controls.addView(subtitle);
+        TextView title = new TextView(this); title.setTextColor(Color.BLACK); title.setText("Cinema " + BuildConfig.TRIAL + " · " + BuildConfig.VERSION_NAME); title.setTextSize(24); controls.addView(title);
+        TextView subtitle = new TextView(this); subtitle.setTextColor(Color.BLACK); subtitle.setText("Alta qualidade · até " + BuildConfig.CAPTURE_FPS + " fps · reserva de 5 segundos"); controls.addView(subtitle);
         endpoint = new EditText(this); endpoint.setSingleLine(true); endpoint.setHint("Endereço do servidor");
         readableInput(endpoint);
         endpoint.setText(getPreferences(0).getString("endpoint", "https://cinema-junto-welliton.onrender.com/")); controls.addView(endpoint);
@@ -102,6 +102,16 @@ public class MainActivity extends Activity {
         loading.setPadding(dp(12), dp(8), dp(12), dp(8)); loading.setText("Carregando imagem e som…");
         videoPane.addView(loading, new FrameLayout.LayoutParams(-2, -2, Gravity.CENTER)); loading.setVisibility(View.GONE);
         screen.setOnClickListener(v -> revealControls());
+        screen.setOnLongClickListener(v -> {
+            PlaybackEngine engine = playback;
+            if (engine != null) new AlertDialog.Builder(this).setTitle("Diagnóstico · " + BuildConfig.VERSION_NAME)
+                .setMessage(engine.diagnostics()).setPositiveButton("Fechar", null)
+                .setNeutralButton("Copiar", (dialog, which) -> {
+                    android.content.ClipboardManager clipboard = getSystemService(android.content.ClipboardManager.class);
+                    clipboard.setPrimaryClip(android.content.ClipData.newPlainText("Cinema", engine.diagnostics()));
+                }).show();
+            return true;
+        });
         viewerBar = new LinearLayout(this); viewerBar.setGravity(Gravity.CENTER); viewerBar.setBackgroundColor(0xaa171717);
         fullscreenButton = barButton(viewerBar, "Tela cheia", () -> { if (fullscreen) exitFullscreen(); else enterFullscreen(); });
         chatButton = barButton(viewerBar, "Chat", () -> openChat());
@@ -347,7 +357,7 @@ public class MainActivity extends Activity {
         LinearLayout box = new LinearLayout(this); box.setOrientation(LinearLayout.VERTICAL);
         box.setPadding(dp(20), dp(8), dp(20), dp(8));
         TextView explanation = new TextView(this); explanation.setTextColor(Color.BLACK);
-        explanation.setText("Escolha uma palavra de 4 a 24 letras ou números, como pipoca42. Envie só essa senha ao seu amigo. Cada sala aceita você e um convidado.");
+        explanation.setText("Escolha uma palavra de 4 a 24 letras ou números, como pipoca42. Envie só essa senha ao seu amigo. Cada sala aceita até cinco aparelhos.");
         box.addView(explanation);
         EditText word = new EditText(this); word.setSingleLine(true); readableInput(word);
         word.setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD | android.text.InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);

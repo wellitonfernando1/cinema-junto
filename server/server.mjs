@@ -3,7 +3,7 @@ import { WebSocketServer, WebSocket } from 'ws';
 import { pathToFileURL } from 'node:url';
 import { isIP } from 'node:net';
 
-export function createRelay({ ttlMs = 2 * 60 * 60 * 1000, mediaBufferLimitBytes = 1024 * 1024, talkTtlMs = 30000,
+export function createRelay({ ttlMs = 2 * 60 * 60 * 1000, mediaBufferLimitBytes = 4 * 1024 * 1024, talkTtlMs = 30000,
   joinAttemptLimit = 12, joinWindowMs = 60000, joinClock = Date.now,
   trustedProxyHops = process.env.RENDER === 'true' ? 1 : 0 } = {}) {
   const rooms = new Map();

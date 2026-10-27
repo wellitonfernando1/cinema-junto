@@ -13,6 +13,7 @@ public class FilmView extends FrameLayout {
     private volatile int surfaceGeneration;
     private volatile boolean videoFrame;
     private int videoWidth, videoHeight;
+    private float frameRate;
     boolean zoom, fitForChat;
 
     public FilmView(Context context) {
@@ -22,7 +23,7 @@ public class FilmView extends FrameLayout {
         poster = new Poster(context); addView(poster, new FrameLayout.LayoutParams(-1, -1));
         texture.getHolder().addCallback(new SurfaceHolder.Callback() {
             public void surfaceCreated(SurfaceHolder holder) {
-                surface = holder.getSurface(); surfaceGeneration++; transform();
+                surface = holder.getSurface(); surfaceGeneration++; applyFrameRate(); transform();
             }
             public void surfaceChanged(SurfaceHolder holder, int format, int w, int h) { transform(); }
             public void surfaceDestroyed(SurfaceHolder holder) { surface = null; surfaceGeneration++; }
@@ -30,6 +31,16 @@ public class FilmView extends FrameLayout {
     }
     @Override protected void onSizeChanged(int w, int h, int ow, int oh) {
         super.onSizeChanged(w, h, ow, oh); transform();
+    }
+    void setMovieFrameRate(float fps) { frameRate = fps; applyFrameRate(); }
+    private void applyFrameRate() {
+        Surface target = surface;
+        if (target == null || !target.isValid() || android.os.Build.VERSION.SDK_INT < 30) return;
+        try {
+            if (android.os.Build.VERSION.SDK_INT >= 31)
+                target.setFrameRate(frameRate, Surface.FRAME_RATE_COMPATIBILITY_FIXED_SOURCE, Surface.CHANGE_FRAME_RATE_ONLY_IF_SEAMLESS);
+            else target.setFrameRate(frameRate, Surface.FRAME_RATE_COMPATIBILITY_FIXED_SOURCE);
+        } catch (IllegalArgumentException | IllegalStateException ignored) { }
     }
     void markVideoFrame() { videoFrame = true; }
     Surface decoderSurface() { return surface; }

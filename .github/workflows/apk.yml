@@ -8,6 +8,9 @@ permissions:
 jobs:
   android:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        trial: [A, B]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -19,16 +22,16 @@ jobs:
         with:
           gradle-version: '8.13'
       - run: sdkmanager 'platforms;android-35' 'build-tools;35.0.0'
-      - run: gradle :app:assembleDebug :app:assembleDebugAndroidTest --no-daemon
-      - run: cp app/build/outputs/apk/debug/app-debug.apk Cinema-Junto-v0.16.apk
+      - run: gradle :app:assembleDebug :app:assembleDebugAndroidTest -PcinemaTrial=${{ matrix.trial }} --no-daemon
+      - run: cp app/build/outputs/apk/debug/app-debug.apk Cinema-Junto-0.17-${{ matrix.trial }}.apk
       - uses: actions/upload-artifact@v4
         with:
-          name: Cinema-Junto-v0.16-APK
-          path: Cinema-Junto-v0.16.apk
+          name: Cinema-Junto-0.17-${{ matrix.trial }}-APK
+          path: Cinema-Junto-0.17-${{ matrix.trial }}.apk
           retention-days: 14
       - uses: actions/upload-artifact@v4
         with:
-          name: apks-para-testes
+          name: apks-para-testes-${{ matrix.trial }}
           path: |
             app/build/outputs/apk/debug/app-debug.apk
             app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
@@ -41,6 +44,7 @@ jobs:
       fail-fast: false
       matrix:
         api: [29, 35]
+        trial: [A, B]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -49,7 +53,7 @@ jobs:
           java-version: '17'
       - uses: actions/download-artifact@v4
         with:
-          name: apks-para-testes
+          name: apks-para-testes-${{ matrix.trial }}
           path: test-apks
       - name: Habilitar aceleração do emulador
         run: |
@@ -62,11 +66,11 @@ jobs:
           arch: x86_64
           profile: pixel_2
           disable-animations: true
-          script: bash .github/scripts/test-ui.sh
+          script: bash .github/scripts/test-ui.sh ${{ matrix.trial }}
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: verificacao-interface-android-${{ matrix.api }}
+          name: verificacao-${{ matrix.trial }}-android-${{ matrix.api }}
           path: ui-results
           retention-days: 14
   servidor:

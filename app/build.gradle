@@ -1,14 +1,22 @@
 plugins { id 'com.android.application' }
+def trial = providers.gradleProperty('cinemaTrial').getOrElse('A')
+if (!(trial in ['A', 'B'])) throw new GradleException('cinemaTrial must be A or B')
 android {
+    buildFeatures { buildConfig true }
     namespace 'br.com.cinemajunto'
     compileSdk 35
     defaultConfig {
-        applicationId 'br.com.cinemajunto'
+        applicationId "br.com.cinemajunto.teste${trial.toLowerCase()}"
+        manifestPlaceholders = [appLabel: "Cinema ${trial} 0.17"]
+        buildConfigField 'String', 'TRIAL', "\"${trial}\""
+        buildConfigField 'int', 'CAPTURE_FPS', trial == 'A' ? '60' : '30'
+        buildConfigField 'int', 'CAPTURE_EDGE', '1920'
+        buildConfigField 'int', 'CAPTURE_BITRATE', '8000000'
         minSdk 29
         targetSdk 35
         testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
-        versionCode 16
-        versionName '0.16'
+        versionCode 17
+        versionName "0.17-${trial}"
     }
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17

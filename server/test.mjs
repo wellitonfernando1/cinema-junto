@@ -412,7 +412,7 @@ test('reserva normal de rede não descarta quadros nem reinicia o filme', async 
   await sendAndReceive(host, viewer, packet(5, 0n, 2));
   await sendAndReceive(host, viewer, packet(6, 1000n, 1));
   const room = relay.rooms.get(key);
-  Object.defineProperty(firstViewer(room), 'bufferedAmount', { configurable: true, get: () => 700 * 1024 });
+  Object.defineProperty(firstViewer(room), 'bufferedAmount', { configurable: true, get: () => 2 * 1024 * 1024 });
   for (let i = 0; i < 12; i++) {
     await sendAndReceive(host, viewer, packet(6, BigInt(2000 + i * 1000)));
     await sendAndReceive(host, viewer, packet(4, BigInt(2000 + i * 1000)));

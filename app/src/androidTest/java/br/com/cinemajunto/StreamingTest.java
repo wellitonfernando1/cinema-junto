@@ -25,7 +25,7 @@ import static org.junit.Assert.*;
 /** Exercises an actual AVC encoder, decoder surface, PCM clock and playback buffer. */
 @RunWith(AndroidJUnit4.class)
 public class StreamingTest {
-    static final int WIDTH = 640, HEIGHT = 360, FPS = 30, SECONDS = 6;
+    static final int WIDTH = 640, HEIGHT = 360, FPS = BuildConfig.CAPTURE_FPS, SECONDS = 6;
     static final long START_US = 1_000_000L;
     Instrumentation instrumentation;
     MainActivity activity;
@@ -111,7 +111,7 @@ public class StreamingTest {
             MediaCodec.BufferInfo info = new MediaCodec.BufferInfo();
             int submitted = 0;
             boolean inputEnded = false, outputEnded = false;
-            long deadline = SystemClock.elapsedRealtime() + 20000;
+            long deadline = SystemClock.elapsedRealtime() + 60000;
             while (!outputEnded && SystemClock.elapsedRealtime() < deadline) {
                 if (!inputEnded) {
                     int index = encoder.dequeueInputBuffer(1000);

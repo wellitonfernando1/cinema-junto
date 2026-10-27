@@ -43,7 +43,7 @@ public class CaptureService extends Service {
     boolean waitingForKeyFrame = true, configurationPending = true;
     long lastSyncRequestUs, encoderTimestampOffsetUs = Long.MIN_VALUE, lastVideoTimestampUs;
     static final int AUDIO_RATE = 44100;
-    static final long MAX_SEND_QUEUE = 1024 * 1024;
+    static final long MAX_SEND_QUEUE = 4 * 1024 * 1024;
     int width, height, density;
     final Handler main = new Handler(Looper.getMainLooper());
     HostChatOverlay overlay;
@@ -186,7 +186,7 @@ public class CaptureService extends Service {
                         else if ("chat".equals(msg.optString("type"))) chat(msg.optString("from"), msg.optString("text"));
                         else if ("talk".equals(msg.optString("type"))) { VoiceTalk talk = voice; if (talk != null) talk.onControl(msg); }
                         else if ("request-keyframe".equals(msg.optString("type"))) {
-                            imageHandler.post(() -> { if (running) { waitingForKeyFrame = true; configurationPending = true; requestSyncFrame(); } });
+                            imageHandler.post(() -> { if (running) { configurationPending = true; requestSyncFrame(); } });
                         }
                         else if (msg.has("status")) {
                             if (msg.optBoolean("joined")) { connected = true; active = true; starting = false; }
@@ -206,7 +206,7 @@ public class CaptureService extends Service {
         return START_NOT_STICKY;
     }
     void dimensions(int w, int h) {
-        float scale = Math.min(1f, 960f / Math.max(w, h));
+        float scale = Math.min(1f, (float)BuildConfig.CAPTURE_EDGE / Math.max(w, h));
         width = Math.max(2, Math.round(w * scale) / 2 * 2);
         height = Math.max(2, Math.round(h * scale) / 2 * 2);
     }
@@ -233,20 +233,26 @@ public class CaptureService extends Service {
     void createEncoder() throws Exception {
         encoder = MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_VIDEO_AVC);
         MediaCodecInfo.VideoCapabilities limits = encoder.getCodecInfo().getCapabilitiesForType(MediaFormat.MIMETYPE_VIDEO_AVC).getVideoCapabilities();
-        // A declared 60 fps capability is not a sustained-performance guarantee while a movie plays.
-        // Keep the capture workload predictable on phones also decoding the source film.
-        int captureFps = limits.areSizeAndRateSupported(width, height, 30) ? 30 : 24;
+        // Keep resolution in both trials; compare temporal quality at the same bitrate.
+        width = Math.max(limits.getWidthAlignment(), width / limits.getWidthAlignment() * limits.getWidthAlignment());
+        height = Math.max(limits.getHeightAlignment(), height / limits.getHeightAlignment() * limits.getHeightAlignment());
+        int captureFps = BuildConfig.CAPTURE_FPS;
+        if (!limits.areSizeAndRateSupported(width, height, captureFps)) captureFps = 30;
+        if (!limits.areSizeAndRateSupported(width, height, captureFps)) captureFps = 24;
+        if (!limits.areSizeAndRateSupported(width, height, captureFps))
+            throw new IllegalStateException("Resolução de captura não suportada");
+        status("Teste " + BuildConfig.TRIAL + ": " + width + "×" + height + " · até " + captureFps + " fps");
         MediaFormat format = MediaFormat.createVideoFormat(MediaFormat.MIMETYPE_VIDEO_AVC, width, height);
         format.setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface);
-        format.setInteger(MediaFormat.KEY_BIT_RATE, 1400000);
+        format.setInteger(MediaFormat.KEY_BIT_RATE, Math.min(BuildConfig.CAPTURE_BITRATE, limits.getBitrateRange().getUpper()));
         format.setInteger(MediaFormat.KEY_FRAME_RATE, captureFps);
         format.setFloat(MediaFormat.KEY_MAX_FPS_TO_ENCODER, (float)captureFps);
         format.setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 1);
         format.setInteger(MediaFormat.KEY_MAX_B_FRAMES, 0);
         format.setInteger(MediaFormat.KEY_PROFILE, MediaCodecInfo.CodecProfileLevel.AVCProfileBaseline);
-        // Legacy OMX encoders require a level whenever an explicit profile is supplied.
-        // Level 3.1 covers the bounded 30 fps capture.
-        format.setInteger(MediaFormat.KEY_LEVEL, MediaCodecInfo.CodecProfileLevel.AVCLevel31);
+        // 1080p60 requires level 4.2; 1080p30 fits level 4.
+        format.setInteger(MediaFormat.KEY_LEVEL, captureFps > 30
+            ? MediaCodecInfo.CodecProfileLevel.AVCLevel42 : MediaCodecInfo.CodecProfileLevel.AVCLevel4);
         // Repeat only for static screens; duplicating every refresh adds unnecessary encoder work.
         format.setLong(MediaFormat.KEY_REPEAT_PREVIOUS_FRAME_AFTER, 200000L);
         waitingForKeyFrame = true; configurationPending = true; cachedVideoConfig = null;
