@@ -6,7 +6,7 @@ Os dois aplicativos podem ficar instalados juntos com a versão anterior.
 - Cinema B 0.17: mesma resolução e taxa-alvo de 8 Mb/s, até 30 fps.
 - As duas versões mantêm proporção, áudio, chat com teclado nativo, cinco aparelhos por sala e reserva temporária de aproximadamente cinco segundos. O conteúdo da reserva é descartado ao encerrar.
 - A usa mais processamento e pode favorecer o movimento. B usa menos quadros e oferece mais bits por quadro à mesma taxa, preservando nitidez. São hipóteses para comparação no aparelho real, não garantia de eliminar engasgos.
-- Não há qualidade adaptativa por internet neste teste. O encoder pode limitar o bitrate ao suportado. A cai para 30/24 fps se a capacidade declarada não comportar 60; B pode cair para 24. Se a resolução não é suportada, a transmissão informa falha em vez de reduzir silenciosamente a imagem.
+- Não há qualidade adaptativa por internet neste teste. O encoder pode limitar o bitrate ao suportado. A cai para 30/24 fps se a capacidade declarada não comportar 60; B pode cair para 24. Se o codec não suporta a resolução nessa orientação, escolhe a maior resolução compatível por aproximação em passos de 5%. Ao girar para paisagem tenta novamente o limite de 1920 pixels. O diagnóstico do receptor informa a resolução real.
 - 1920×1080 é possível quando a região compartilhada é 16:9 e tem ao menos essas dimensões. Compartilhar a tela inteira de um celular mais alongado mantém a proporção e pode resultar, por exemplo, em 1920×864. Não inventa detalhes nem quadros que não existam na origem. O filme escolhido em 1080p continua sendo recapturado, não é enviado como arquivo original.
 
 ## Como comparar

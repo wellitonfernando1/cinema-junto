@@ -97,6 +97,7 @@ final class PlaybackEngine implements AutoCloseable {
     }
     private void loop() {
         try {
+            android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_DISPLAY);
             int min = AudioTrack.getMinBufferSize(RATE, AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_16BIT);
             track = new AudioTrack.Builder()
                 .setAudioAttributes(new AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).setContentType(AudioAttributes.CONTENT_TYPE_MOVIE).build())

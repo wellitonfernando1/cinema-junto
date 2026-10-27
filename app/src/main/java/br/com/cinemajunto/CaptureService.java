@@ -46,6 +46,7 @@ public class CaptureService extends Service {
     static final long MAX_SEND_QUEUE = 4 * 1024 * 1024;
     int width, height, density;
     int widthAlignment = 2, heightAlignment = 2;
+    int sourceWidth, sourceHeight;
     final Handler main = new Handler(Looper.getMainLooper());
     HostChatOverlay overlay;
     volatile VoiceTalk voice;
@@ -207,6 +208,7 @@ public class CaptureService extends Service {
         return START_NOT_STICKY;
     }
     void dimensions(int w, int h) {
+        sourceWidth = w; sourceHeight = h;
         float scale = Math.min(1f, (float)BuildConfig.CAPTURE_EDGE / Math.max(w, h));
         width = Math.max(widthAlignment, Math.round(w * scale) / widthAlignment * widthAlignment);
         height = Math.max(heightAlignment, Math.round(h * scale) / heightAlignment * heightAlignment);
@@ -224,6 +226,7 @@ public class CaptureService extends Service {
     }
     void resize(int w, int h) {
         if (!running || display == null || w <= 0 || h <= 0) return;
+        if (sourceWidth == w && sourceHeight == h) return;
         int ow = width, oh = height; dimensions(w,h); if (ow == width && oh == height) return;
         try {
             // The consent token is used only once. Reattach the new encoder to the existing display.
@@ -238,6 +241,13 @@ public class CaptureService extends Service {
         widthAlignment = limits.getWidthAlignment(); heightAlignment = limits.getHeightAlignment();
         width = Math.max(limits.getWidthAlignment(), width / limits.getWidthAlignment() * limits.getWidthAlignment());
         height = Math.max(limits.getHeightAlignment(), height / limits.getHeightAlignment() * limits.getHeightAlignment());
+        // Older codecs may accept landscape Full HD but not a 1920px-tall
+        // portrait surface. Use the largest supported size in this orientation;
+        // a later landscape resize starts from CAPTURE_EDGE again.
+        while (!limits.areSizeAndRateSupported(width, height, 24) && Math.max(width, height) > 480) {
+            width = Math.max(widthAlignment, (int)(width * 0.95f) / widthAlignment * widthAlignment);
+            height = Math.max(heightAlignment, (int)(height * 0.95f) / heightAlignment * heightAlignment);
+        }
         int captureFps = BuildConfig.CAPTURE_FPS;
         if (!limits.areSizeAndRateSupported(width, height, captureFps)) captureFps = 30;
         if (!limits.areSizeAndRateSupported(width, height, captureFps)) captureFps = 24;
@@ -252,9 +262,13 @@ public class CaptureService extends Service {
         format.setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 1);
         format.setInteger(MediaFormat.KEY_MAX_B_FRAMES, 0);
         format.setInteger(MediaFormat.KEY_PROFILE, MediaCodecInfo.CodecProfileLevel.AVCProfileBaseline);
-        // 1080p60 requires level 4.2; 1080p30 fits level 4.
-        format.setInteger(MediaFormat.KEY_LEVEL, captureFps > 30
-            ? MediaCodecInfo.CodecProfileLevel.AVCLevel42 : MediaCodecInfo.CodecProfileLevel.AVCLevel4);
+        // Match the level to the selected size/rate, including older codec limits.
+        int blocks = ((width + 15) / 16) * ((height + 15) / 16);
+        int level = blocks <= 3600 && blocks * captureFps <= 108000 ? MediaCodecInfo.CodecProfileLevel.AVCLevel31
+            : blocks <= 5120 && blocks * captureFps <= 216000 ? MediaCodecInfo.CodecProfileLevel.AVCLevel32
+            : blocks <= 8192 && blocks * captureFps <= 245760 ? MediaCodecInfo.CodecProfileLevel.AVCLevel4
+            : MediaCodecInfo.CodecProfileLevel.AVCLevel42;
+        format.setInteger(MediaFormat.KEY_LEVEL, level);
         // Repeat only for static screens; duplicating every refresh adds unnecessary encoder work.
         format.setLong(MediaFormat.KEY_REPEAT_PREVIOUS_FRAME_AFTER, 200000L);
         waitingForKeyFrame = true; configurationPending = true; cachedVideoConfig = null;
