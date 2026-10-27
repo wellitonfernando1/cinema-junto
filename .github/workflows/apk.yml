@@ -20,11 +20,11 @@ jobs:
           gradle-version: '8.13'
       - run: sdkmanager 'platforms;android-35' 'build-tools;35.0.0'
       - run: gradle :app:assembleDebug :app:assembleDebugAndroidTest --no-daemon
-      - run: cp app/build/outputs/apk/debug/app-debug.apk Cinema-Junto-v0.15.apk
+      - run: cp app/build/outputs/apk/debug/app-debug.apk Cinema-Junto-v0.16.apk
       - uses: actions/upload-artifact@v4
         with:
-          name: Cinema-Junto-v0.15-APK
-          path: Cinema-Junto-v0.15.apk
+          name: Cinema-Junto-v0.16-APK
+          path: Cinema-Junto-v0.16.apk
           retention-days: 14
       - uses: actions/upload-artifact@v4
         with:

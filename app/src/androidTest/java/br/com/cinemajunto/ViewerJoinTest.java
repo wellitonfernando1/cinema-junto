@@ -113,6 +113,12 @@ public class ViewerJoinTest {
         while (hostDevice.equals(RoomPassword.device(instrumentation.getTargetContext())));
         createTemporaryHost(RoomPassword.room(password), hostDevice);
         until("The isolated host did not create its room", 10000, hostJoined::get);
+        main(() -> {
+            activity.invitation.setText(password); activity.invitation.requestFocus();
+            activity.invitation.postDelayed(() -> activity.getSystemService(android.view.inputmethod.InputMethodManager.class)
+                .showSoftInput(activity.invitation, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT), 250);
+        });
+        until("Password keyboard never opened", 5000, () -> activity.imeVisible);
 
         main(() -> {
             activity.client = activity.client.newBuilder().addInterceptor(chain -> {
@@ -144,6 +150,14 @@ public class ViewerJoinTest {
         });
         until("A valid password was rejected when decoder controls preceded opening",
             Math.max(1, viewerDeadline - SystemClock.elapsedRealtime()), () -> activity.viewerJoined && friendJoined.get());
+        until("The password keyboard remained visible after joining", 5000, () -> !activity.imeVisible);
+        main(() -> {
+            assertFalse("Hidden password retained focus", activity.invitation.hasFocus());
+            activity.enterFullscreen();
+        });
+        until("Fullscreen did not settle without the password keyboard", 5000,
+            () -> activity.getResources().getConfiguration().orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
+                && !activity.imeVisible);
         // The relay itself requests one keyframe when a viewer joins. A second one proves the
         // actual PlaybackEngine continues asking for video after the acknowledgement unlocks it.
         until("The acknowledged viewer never requested video through its real playback worker",

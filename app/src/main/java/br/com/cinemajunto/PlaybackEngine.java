@@ -43,7 +43,9 @@ final class PlaybackEngine implements AutoCloseable {
     final AudioTimestamp audioTimestamp = new AudioTimestamp();
     long timestampPollNs, timestampFrame, timestampNs, observedHead = -1, observedHeadNs;
     boolean timestampValid;
-    volatile long droppedVideoFrames, scheduledVideoFrames;
+    volatile long droppedVideoFrames, scheduledVideoFrames, decoderConfigurations, surfaceSwitches;
+    long clockAnchorNs, clockAnchorUs, appliedClockCorrectionUs;
+    boolean clockAnchored;
     volatile long lastScheduledNs, maxScheduleSpacingErrorUs;
     long previousScheduledPtsUs = Long.MIN_VALUE;
 
@@ -83,7 +85,7 @@ final class PlaybackEngine implements AutoCloseable {
             track = new AudioTrack.Builder()
                 .setAudioAttributes(new AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).setContentType(AudioAttributes.CONTENT_TYPE_MOVIE).build())
                 .setAudioFormat(new AudioFormat.Builder().setSampleRate(RATE).setChannelMask(AudioFormat.CHANNEL_OUT_MONO).setEncoding(AudioFormat.ENCODING_PCM_16BIT).build())
-                .setBufferSizeInBytes(Math.max(min, 17640)).setTransferMode(AudioTrack.MODE_STREAM).build();
+                .setBufferSizeInBytes(Math.max(min, RATE)).setTransferMode(AudioTrack.MODE_STREAM).build();
             // A streaming track may not start until its device buffer is full.
             // Feeding less than that threshold would leave the playback clock at zero forever.
             audioAheadFrames = track.getBufferSizeInFrames();
@@ -92,7 +94,15 @@ final class PlaybackEngine implements AutoCloseable {
                 StreamPacket.Packet packet;
                 // Bound ingestion work so a network burst cannot starve rendering and audio writes.
                 for (int n = 0; n < 64 && (packet = incoming.poll()) != null; n++) accept(packet);
-                if (decoder != null && surfaceGeneration != view.surfaceGeneration()) { restart(); requestKeyFrame(); }
+                if (decoder != null && surfaceGeneration != view.surfaceGeneration() && view.decoderSurface() != null) {
+                    try {
+                        decoder.setOutputSurface(view.decoderSurface());
+                        decoder.setVideoScalingMode(MediaCodec.VIDEO_SCALING_MODE_SCALE_TO_FIT);
+                        surfaceGeneration = view.surfaceGeneration(); surfaceSwitches++;
+                    } catch (IllegalStateException | IllegalArgumentException unsupported) {
+                        restart(); requestKeyFrame();
+                    }
+                }
                 if (decoder == null && config != null && view.decoderSurface() != null) configure();
                 if (!audio.isEmpty() && !video.isEmpty() && audio.peekLast().timestampUs - audio.peekFirst().timestampUs > MAX_BACKLOG_US) {
                     restart(); requestKeyFrame();
@@ -177,7 +187,8 @@ final class PlaybackEngine implements AutoCloseable {
                 lastPresentedNs = ns; presentedFrames++; view.markVideoFrame();
             }
         }, ui);
-        decoder.start(); surfaceGeneration = view.surfaceGeneration();
+        decoder.start(); decoder.setVideoScalingMode(MediaCodec.VIDEO_SCALING_MODE_SCALE_TO_FIT);
+        decoderConfigurations++; surfaceGeneration = view.surfaceGeneration();
         int w = config.width, h = config.height; ui.post(() -> { if (running) view.setVideoSize(w, h); });
     }
     private long playedFrames() { return track.getPlaybackHeadPosition() & 0xffffffffL; }
@@ -205,7 +216,7 @@ final class PlaybackEngine implements AutoCloseable {
         }
     }
     private void resetVideoClock() {
-        timestampValid = false; timestampPollNs = 0; observedHead = -1;
+        timestampValid = false; timestampPollNs = 0; observedHead = -1; clockAnchored = false; appliedClockCorrectionUs = 0;
         previousScheduledPtsUs = Long.MIN_VALUE; lastScheduledNs = 0;
     }
     private long videoClockUs(long nowNs) {
@@ -227,8 +238,23 @@ final class PlaybackEngine implements AutoCloseable {
             frames = head + Math.max(0, nowNs - observedHeadNs) * RATE / 1000000000L;
         }
         frames = Math.max(0, Math.min(writtenFrames, frames));
-        return Math.max(currentClockUs, audioOriginUs + frames * 1000000L / RATE);
+        long measuredUs = audioOriginUs + frames * 1000000L / RATE;
+        if (!clockAnchored) {
+            clockAnchorNs = nowNs; clockAnchorUs = Math.max(currentClockUs, measuredUs); lastClockSampleNs = nowNs; clockAnchored = true;
+        }
+        long smoothUs = clockAnchorUs + (nowNs - clockAnchorNs) / 1000L;
+        // A newly available hardware timestamp must not suddenly skip a batch of
+        // video frames. Slew the video mapping by at most 2 ms per second.
+        long desiredCorrection = measuredUs - smoothUs;
+        long elapsedNs = Math.max(0, nowNs - lastClockSampleNs);
+        long stepUs = Math.max(1, elapsedNs / 500000L);
+        appliedClockCorrectionUs += Math.max(-stepUs, Math.min(stepUs, desiredCorrection - appliedClockCorrectionUs));
+        lastClockSampleNs = nowNs;
+        return Math.max(currentClockUs, Math.min(audioOriginUs + writtenFrames * 1000000L / RATE,
+            smoothUs + appliedClockCorrectionUs));
     }
+    long lastClockSampleNs;
+
     private void feedVideo(long clockUs) {
         if (decoder == null) return;
         // Decode ahead of presentation so device decoding latency does not become a motion stutter.
@@ -243,12 +269,14 @@ final class PlaybackEngine implements AutoCloseable {
         }
     }
     private void decodeVideo(long clockUs) {
-        if (decoder == null) return;
+        if (decoder == null || view.decoderSurface() == null || surfaceGeneration != view.surfaceGeneration()) return;
         feedVideo(clockUs);
         for (int n = 0; n < 8; n++) {
             if (outputIndex < 0) {
                 int index = decoder.dequeueOutputBuffer(output, 0);
-                if (index == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) continue;
+                if (index == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
+                    decoder.setVideoScalingMode(MediaCodec.VIDEO_SCALING_MODE_SCALE_TO_FIT); continue;
+                }
                 if (index < 0) break;
                 outputIndex = index;
             }
@@ -256,14 +284,12 @@ final class PlaybackEngine implements AutoCloseable {
             clockUs = videoClockUs(nowNs);
             long untilUs = output.presentationTimeUs - clockUs;
             // SurfaceView presents at the requested VSYNC. Submit about two refreshes in advance.
-            if (untilUs > 35000) break;
+            if (untilUs > 80000) break;
             boolean render = untilUs >= -80000;
             if (render) {
-                long targetNs;
-                if (timestampValid) targetNs = timestampNs + (output.presentationTimeUs - audioOriginUs) * 1000L
-                    - timestampFrame * 1000000000L / RATE;
-                else targetNs = nowNs + untilUs * 1000L;
-                targetNs = Math.max(nowNs, targetNs);
+                // Use the same smoothed movie clock for both deadlines and late-frame
+                // decisions. Do not switch abruptly from playback-head to hardware time.
+                long targetNs = Math.max(nowNs, nowNs + untilUs * 1000L);
                 if (previousScheduledPtsUs != Long.MIN_VALUE && output.presentationTimeUs > previousScheduledPtsUs) {
                     long errorUs = Math.abs((targetNs - lastScheduledNs) / 1000L
                         - (output.presentationTimeUs - previousScheduledPtsUs));

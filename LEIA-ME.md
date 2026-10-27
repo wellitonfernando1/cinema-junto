@@ -4,7 +4,7 @@ Projeto Android para Welliton e um amigo assistirem à tela e ao áudio do celul
 
 ## Estado desta entrega
 
-O APK 0.15 usa o teclado padrão escolhido nas configurações do celular. Ao abrir o chat de quem assiste, a tela gira para a vertical, o filme continua acima do teclado e, ao fechar, a tela cheia volta à horizontal. A reprodução, o áudio e o buffer de cinco segundos da versão 0.14 são preservados. A sala aceita cinco aparelhos no total: um transmite e quatro assistem e conversam. É possível entrar com um segundo celular para digitar sem abrir o teclado no aparelho que transmite.
+O APK 0.16 mantém uma reserva de cinco segundos de áudio e vídeo, amplia a reserva de áudio entregue ao aparelho para 500 ms e agenda os quadros por um relógio contínuo, com correção gradual quando o relógio de áudio passa a fornecer timestamps. A superfície do decodificador permanece no tamanho original do vídeo; tela cheia e teclado redimensionam apenas sua exibição. Durante o chat, o filme inteiro aparece proporcionalmente, mesmo se o usuário tiver escolhido Ampliar. Ao fechar o chat, o zoom anterior volta. O teclado da senha é fechado antes de assistir e permanece fechado ao entrar em tela cheia. Mantém o teclado padrão, chat na vertical, cinco aparelhos por sala e os ajustes de áudio e voz existentes. A fluidez em aparelhos reais e no YouCine ainda deve ser conferida pelo usuário.
 
 ## Instalar ou gerar novamente o APK sem Android Studio
 

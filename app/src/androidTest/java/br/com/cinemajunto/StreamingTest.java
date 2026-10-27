@@ -25,7 +25,7 @@ import static org.junit.Assert.*;
 /** Exercises an actual AVC encoder, decoder surface, PCM clock and playback buffer. */
 @RunWith(AndroidJUnit4.class)
 public class StreamingTest {
-    static final int WIDTH = 160, HEIGHT = 96, FPS = 30, SECONDS = 6;
+    static final int WIDTH = 640, HEIGHT = 360, FPS = 30, SECONDS = 6;
     static final long START_US = 1_000_000L;
     Instrumentation instrumentation;
     MainActivity activity;
@@ -99,7 +99,7 @@ public class StreamingTest {
         try {
             MediaFormat format = MediaFormat.createVideoFormat(MediaFormat.MIMETYPE_VIDEO_AVC, WIDTH, HEIGHT);
             format.setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatYUV420Flexible);
-            format.setInteger(MediaFormat.KEY_BIT_RATE, 160_000);
+            format.setInteger(MediaFormat.KEY_BIT_RATE, 1_400_000);
             format.setInteger(MediaFormat.KEY_FRAME_RATE, FPS);
             format.setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 1);
             format.setInteger(MediaFormat.KEY_MAX_B_FRAMES, 0);
@@ -111,7 +111,7 @@ public class StreamingTest {
             MediaCodec.BufferInfo info = new MediaCodec.BufferInfo();
             int submitted = 0;
             boolean inputEnded = false, outputEnded = false;
-            long deadline = SystemClock.elapsedRealtime() + 10000;
+            long deadline = SystemClock.elapsedRealtime() + 20000;
             while (!outputEnded && SystemClock.elapsedRealtime() < deadline) {
                 if (!inputEnded) {
                     int index = encoder.dequeueInputBuffer(1000);
@@ -229,10 +229,15 @@ public class StreamingTest {
         video(engine, movie, 2000, 6000, START_US);
         until("Playback did not start with the multi-second reserve", 7000,
             () -> !engine.buffering && engine.renderedFrames >= 5);
+        main(() -> activity.enterFullscreen());
+        until("Jitter test must run in fullscreen", 5000,
+            () -> read(() -> activity.getResources().getConfiguration().orientation == Configuration.ORIENTATION_LANDSCAPE));
         long before = engine.clockUs();
         long framesBefore = engine.renderedFrames;
         long droppedBefore = engine.droppedVideoFrames;
         long presentedBefore = engine.presentedFrames;
+        // Measure gaps only after rotation and the compositor snapshot settle.
+        Thread.sleep(200); engine.longestPresentationGapNs = 0;
         // No packets arrive for two seconds, as during a temporary Wi-Fi slowdown.
         Thread.sleep(2000);
         assertFalse("A two-second delivery pause exhausted the reserve", engine.buffering);
@@ -240,6 +245,10 @@ public class StreamingTest {
         assertTrue("30 fps motion did not advance during the delivery pause", engine.renderedFrames > framesBefore + 40);
         assertTrue("Decoder lost too many frames under buffered steady playback",
             engine.droppedVideoFrames - droppedBefore < 12);
+        assertTrue("Buffered fullscreen playback had a visible presentation stall: " + engine.longestPresentationGapNs,
+            engine.longestPresentationGapNs < 200_000_000L);
+        assertTrue("Frame deadlines jumped while the audio timestamp warmed up: " + engine.maxScheduleSpacingErrorUs,
+            engine.maxScheduleSpacingErrorUs < 60_000L);
         assertTrue("Frames were not scheduled onto the display clock", engine.lastScheduledNs > 0);
         assertTrue("Surface callbacks did not confirm actual frame presentation",
             engine.presentedFrames > presentedBefore + 40);
@@ -286,6 +295,20 @@ public class StreamingTest {
         assertSame("Rotation replaced the playback engine", engine, activity.playback);
         assertSame("Rotation replaced the playback worker", worker, engine.worker);
         assertRealGreenVideo("Fullscreen hid the decoded AVC video");
+        long configurations = engine.decoderConfigurations;
+        main(() -> { activity.screen.setZoom(true); activity.openChat(); });
+        until("Native keyboard did not open in portrait", 5000, () -> read(() -> activity.imeVisible
+            && activity.getResources().getConfiguration().orientation == Configuration.ORIENTATION_PORTRAIT));
+        until("Decoder surface did not fit the mini player", 3000, () -> read(() -> {
+            android.view.SurfaceView surface = (android.view.SurfaceView)activity.screen.getChildAt(0);
+            return surface.getWidth() <= activity.screen.getWidth() + 1 && surface.getHeight() <= activity.screen.getHeight() + 1
+                && Math.abs((double)surface.getWidth()/surface.getHeight() - (double)WIDTH/HEIGHT) < 0.02
+                && surface.getHolder().getSurfaceFrame().width() == WIDTH
+                && surface.getHolder().getSurfaceFrame().height() == HEIGHT;
+        }));
+        assertEquals("Opening chat unnecessarily restarted the decoder", configurations, engine.decoderConfigurations);
+        assertRealGreenVideo("Keyboard resize lost the actual decoded video");
+        main(() -> activity.closeChat());
         until("Audio starvation never paused playback for buffering", 9000, () -> engine.buffering);
         // Allow an already-released surface frame to reach its presentation callback.
         Thread.sleep(120);

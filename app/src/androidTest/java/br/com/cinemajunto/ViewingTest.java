@@ -86,17 +86,30 @@ public class ViewingTest {
     @Test public void keyboardShrinksMovieAndBackRestoresFullscreen() throws Exception {
         startFilm(); fullscreen(); int height = activity.screen.getHeight();
         Thread receiver = activity.playback.worker; int generation = activity.playbackGeneration;
-        main(() -> activity.openChat());
+        main(() -> { activity.screen.setZoom(true); activity.openChat(); });
         until("Keyboard never opened", () -> activity.imeVisible);
         until("Chat must use portrait", () -> activity.getResources().getConfiguration().orientation == Configuration.ORIENTATION_PORTRAIT);
         assertSame(receiver, activity.playback.worker); assertEquals(generation, activity.playbackGeneration);
         assertTrue("Film must remain visible above the native keyboard", activity.screen.getHeight() > activity.dp(70));
         assertTrue("Native system keyboard missing", device.hasObject(By.pkg("com.android.inputmethod.latin")));
         assertTrue("Chat obscures too much of the film", activity.chatPanel.getHeight() <= activity.dp(100));
+        assertTrue("Opening chat erased the user's zoom preference", activity.screen.zoom);
+        assertFalse("Chat inherited fullscreen crop", activity.screen.useZoom());
         assertFilmVisible("film-with-keyboard");
+        long fitDeadline = SystemClock.elapsedRealtime() + 3000; boolean entireFrame = false;
+        while (!entireFrame && SystemClock.elapsedRealtime() < fitDeadline) {
+            Bitmap shot = screenshot("film-with-keyboard-fit");
+            int[] pos = new int[2]; main(() -> activity.screen.getLocationOnScreen(pos));
+            int color = shot.getPixel(pos[0] + activity.screen.getWidth()/12, pos[1] + activity.screen.getHeight()/2);
+            entireFrame = Color.blue(color) > 160 && Color.green(color) < 70;
+            shot.recycle(); if (!entireFrame) Thread.sleep(100);
+        }
+        assertTrue("The blue left edge of the original film was cropped from the mini player", entireFrame);
         device.pressBack(); until("Chat did not close with the keyboard", () -> !activity.chatOpen && !activity.imeVisible);
         until("Movie did not reclaim landscape", () -> activity.getResources().getConfiguration().orientation == Configuration.ORIENTATION_LANDSCAPE && activity.screen.getHeight() >= height - activity.dp(30));
-        assertTrue(activity.fullscreen); assertTrue(activity.watching); assertFilmVisible("fullscreen-restored");
+        assertTrue(activity.fullscreen); assertTrue(activity.watching);
+        assertTrue("Closing chat failed to restore zoom", activity.screen.useZoom());
+        assertFilmVisible("fullscreen-restored");
     }
     @Test public void incomingMessageIsSmallAndDoesNotInterruptMovie() throws Exception {
         startFilm(); fullscreen(); int height = activity.screen.getHeight();

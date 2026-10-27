@@ -74,8 +74,8 @@ public class MainActivity extends Activity {
         controls = new LinearLayout(this); controls.setOrientation(LinearLayout.VERTICAL);
         controls.setPadding(dp(16), dp(12), dp(16), dp(12)); controls.setBackgroundColor(0xfffafafa);
         setupScroll.addView(controls); mainLayout.addView(setupScroll, new LinearLayout.LayoutParams(-1, 0, 1));
-        TextView title = new TextView(this); title.setTextColor(Color.BLACK); title.setText("Cinema Junto 0.15"); title.setTextSize(24); controls.addView(title);
-        TextView subtitle = new TextView(this); subtitle.setTextColor(Color.BLACK); subtitle.setText("Filme, chat, microfone e senha simples · Versão 0.15"); controls.addView(subtitle);
+        TextView title = new TextView(this); title.setTextColor(Color.BLACK); title.setText("Cinema Junto 0.16"); title.setTextSize(24); controls.addView(title);
+        TextView subtitle = new TextView(this); subtitle.setTextColor(Color.BLACK); subtitle.setText("Filme, chat, microfone e senha simples · Versão 0.16"); controls.addView(subtitle);
         endpoint = new EditText(this); endpoint.setSingleLine(true); endpoint.setHint("Endereço do servidor");
         readableInput(endpoint);
         endpoint.setText(getPreferences(0).getString("endpoint", "https://cinema-junto-welliton.onrender.com/")); controls.addView(endpoint);
@@ -215,6 +215,7 @@ public class MainActivity extends Activity {
     }
     void enterFullscreen() {
         if (!watching) return;
+        if (!chatOpen) dismissSetupKeyboard();
         fullscreen = true; updateLayout(); applyImmersive(); revealControls();
         setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE);
     }
@@ -268,7 +269,7 @@ public class MainActivity extends Activity {
     void openChat() {
         if (CaptureService.active) { openHostChat(); return; }
         if (!watching) { show("Entre em uma sala primeiro."); return; }
-        chatOpen = true; keyboardSeen = false; chatPanel.setVisibility(View.VISIBLE); unreadChat = false;
+        chatOpen = true; screen.setFitForChat(true); keyboardSeen = false; chatPanel.setVisibility(View.VISIBLE); unreadChat = false;
         updateChatButtons(); ui.removeCallbacks(hideControls); viewerBar.setVisibility(View.GONE); showSystemBars();
         setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_PORTRAIT);
         showChatKeyboard();
@@ -283,7 +284,7 @@ public class MainActivity extends Activity {
     }
     void closeChat() {
         ui.removeCallbacks(idleChat);
-        chatOpen = false; keyboardSeen = false; chatPanel.setVisibility(View.GONE);
+        chatOpen = false; screen.setFitForChat(false); keyboardSeen = false; chatPanel.setVisibility(View.GONE);
         ((InputMethodManager)getSystemService(INPUT_METHOD_SERVICE)).hideSoftInputFromWindow(chatInput.getWindowToken(), 0);
         chatInput.clearFocus(); screen.requestFocus();
         if (watching) setRequestedOrientation(fullscreen ? ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE : ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED);
@@ -326,6 +327,7 @@ public class MainActivity extends Activity {
     @Override public void onConfigurationChanged(Configuration config) {
         super.onConfigurationChanged(config); updateLayout(); root.requestApplyInsets();
         if (chatOpen) { keyboardSeen = false; showChatKeyboard(); resetChatIdle(); }
+        if (watching && !chatOpen) dismissSetupKeyboard();
         if (fullscreen && !chatOpen) applyImmersive();
     }
     @Override public void onWindowFocusChanged(boolean focused) {
@@ -432,6 +434,14 @@ public class MainActivity extends Activity {
         Intent send = new Intent(Intent.ACTION_SEND); send.setType("text/plain"); send.putExtra(Intent.EXTRA_TEXT, value);
         startActivity(Intent.createChooser(send, "Envie a senha ao seu amigo para digitar no Cinema Junto."));
     }
+    void dismissSetupKeyboard() {
+        root.setFocusableInTouchMode(true); root.requestFocus();
+        invitation.clearFocus(); endpoint.clearFocus();
+        ((InputMethodManager)getSystemService(INPUT_METHOD_SERVICE))
+            .hideSoftInputFromWindow(root.getWindowToken(), 0);
+        if (Build.VERSION.SDK_INT >= 30 && getWindow().getInsetsController() != null)
+            getWindow().getInsetsController().hide(WindowInsets.Type.ime());
+    }
     void startViewer() {
         try {
             if (CaptureService.active || CaptureService.starting || hostFlowPending) { show("Encerre ou cancele sua transmissão antes de assistir."); return; }
@@ -445,6 +455,7 @@ public class MainActivity extends Activity {
                 value = RoomPassword.normalize(value); base = validEndpoint(endpoint.getText().toString());
                 room = RoomPassword.room(value); invitation.setText(value);
             }
+            dismissSetupKeyboard();
             stopViewer(); endpoint.setText(base); watching = true; updateLayout();
             getPreferences(0).edit().putString("endpoint", base).apply();
             startPlayback(); startVoice(); show("Conectando ao seu amigo…");

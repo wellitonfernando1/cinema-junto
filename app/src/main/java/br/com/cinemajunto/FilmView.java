@@ -13,7 +13,7 @@ public class FilmView extends FrameLayout {
     private volatile int surfaceGeneration;
     private volatile boolean videoFrame;
     private int videoWidth, videoHeight;
-    boolean zoom;
+    boolean zoom, fitForChat;
 
     public FilmView(Context context) {
         super(context); setFocusable(true); setBackgroundColor(Color.BLACK);
@@ -35,16 +35,22 @@ public class FilmView extends FrameLayout {
     Surface decoderSurface() { return surface; }
     int surfaceGeneration() { return surfaceGeneration; }
     void setVideoSize(int w, int h) {
-        videoWidth = w; videoHeight = h; poster.frame = null; poster.setVisibility(GONE); transform();
+        videoWidth = w; videoHeight = h;
+        // The codec always draws into source-sized buffers. Window/IME resizing is
+        // a compositor transform, not a reallocation of the decoder's buffers.
+        texture.getHolder().setFixedSize(w, h);
+        poster.frame = null; poster.setVisibility(GONE); transform();
     }
     void setFrame(Bitmap bitmap) { poster.frame = bitmap; poster.setVisibility(VISIBLE); poster.invalidate(); }
     void clearFrame() { poster.frame = null; poster.setBackgroundColor(Color.BLACK); poster.setVisibility(VISIBLE); poster.invalidate(); videoFrame = false; }
     void setZoom(boolean enabled) { zoom = enabled; transform(); poster.invalidate(); }
+    void setFitForChat(boolean fit) { fitForChat = fit; transform(); poster.invalidate(); }
+    boolean useZoom() { return zoom && !fitForChat; }
     boolean hasFrame() { return videoFrame || (poster.frame != null && !poster.frame.isRecycled()); }
     private void transform() {
         float vw = getWidth(), vh = getHeight();
         if (vw == 0 || vh == 0 || videoWidth == 0 || videoHeight == 0) return;
-        float scale = zoom ? Math.max(vw / videoWidth, vh / videoHeight) : Math.min(vw / videoWidth, vh / videoHeight);
+        float scale = useZoom() ? Math.max(vw / videoWidth, vh / videoHeight) : Math.min(vw / videoWidth, vh / videoHeight);
         int w = Math.max(1, Math.round(videoWidth * scale)), h = Math.max(1, Math.round(videoHeight * scale));
         FrameLayout.LayoutParams old = (FrameLayout.LayoutParams)texture.getLayoutParams();
         if (old.width != w || old.height != h || old.gravity != Gravity.CENTER)
@@ -57,7 +63,7 @@ public class FilmView extends FrameLayout {
         Poster(Context context) { super(context); }
         @Override protected void onDraw(Canvas canvas) {
             if (frame == null || frame.isRecycled() || getWidth() == 0 || getHeight() == 0) return;
-            float scale = zoom ? Math.max((float)getWidth()/frame.getWidth(), (float)getHeight()/frame.getHeight())
+            float scale = useZoom() ? Math.max((float)getWidth()/frame.getWidth(), (float)getHeight()/frame.getHeight())
                 : Math.min((float)getWidth()/frame.getWidth(), (float)getHeight()/frame.getHeight());
             float w = frame.getWidth()*scale, h = frame.getHeight()*scale;
             destination.set((getWidth()-w)/2, (getHeight()-h)/2, (getWidth()+w)/2, (getHeight()+h)/2);
