@@ -1,11 +1,11 @@
-# Cinema Junto 0.18 — alterações preparadas
+# Cinema Junto 0.18
 
-Base: 17A, commit 547b20614715eb52be965e25d7cde3724cfc615a.
+Base: 17A (547b20614715eb52be965e25d7cde3724cfc615a).
 
-Mantém captura de até 1920 pixels no lado maior, até 60 fps, alvo de 8 Mb/s e reserva de cinco segundos. Preserva voz, chat, teclado e proporção da imagem.
+Mantém até 1920 pixels no lado maior, até 60 fps, alvo de 8 Mb/s e reserva de cinco segundos. Preserva voz, chat, teclado e proporção da imagem.
 
-O receptor informa ao decodificador prioridade de reprodução e operação a 60 fps, reabastece a entrada assim que libera quadros e agenda a apresentação com até 120 ms de antecedência (antes 80 ms). O efeito na fluidez precisa ser medido em aparelhos reais; não há garantia de eliminar os microtravamentos.
+O receptor solicita prioridade de reprodução e operação a 60 fps, reabastece a entrada do decodificador após liberar quadros e agenda a apresentação até 120 ms antes (anteriormente 80 ms). A melhoria precisa ser confirmada em aparelhos reais.
 
-Identificação única Cinema Junto 0.18, instalável junto à 17A. Não requer desinstalar a versão de comparação.
+Instalação independente: Cinema Junto 0.18 pode coexistir com a 17A. Instale nos dois aparelhos.
 
-Validação local: 23/23 testes do servidor aprovados; git diff --check aprovado. APK e testes Android 10/15 pendentes. O ambiente local não possui Android SDK nem Gradle. O envio ao GitHub para executar a compilação foi bloqueado pela revisão automática por ausência de autorização explícita. Nenhuma alteração remota foi publicada.
+Validação: 23 testes locais do servidor aprovados. Compilação e testes de Android 10/15: consultar o GitHub Actions da branch release/0.18. Não confundir aprovação automatizada com garantia de ausência de microtravamentos no aparelho real.
