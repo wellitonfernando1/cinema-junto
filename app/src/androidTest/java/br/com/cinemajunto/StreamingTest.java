@@ -232,12 +232,16 @@ public class StreamingTest {
         main(() -> activity.enterFullscreen());
         until("Jitter test must run in fullscreen", 5000,
             () -> read(() -> activity.getResources().getConfiguration().orientation == Configuration.ORIENTATION_LANDSCAPE));
+        // Orientation configuration precedes the compositor's rotation snapshot.
+        // Measure ongoing fullscreen playback only after fresh frames are actually presented.
+        long settlingNs = System.nanoTime(), settlingFrames = engine.presentedFrames;
+        until("Fullscreen never reached active frame presentation", 5000,
+            () -> engine.presentedFrames >= settlingFrames + 5 && engine.lastPresentedNs > settlingNs + 200_000_000L);
+        engine.longestPresentationGapNs = 0; engine.maxScheduleSpacingErrorUs = 0;
         long before = engine.clockUs();
         long framesBefore = engine.renderedFrames;
         long droppedBefore = engine.droppedVideoFrames;
         long presentedBefore = engine.presentedFrames;
-        // Measure gaps only after rotation and the compositor snapshot settle.
-        Thread.sleep(200); engine.longestPresentationGapNs = 0;
         // No packets arrive for two seconds, as during a temporary Wi-Fi slowdown.
         Thread.sleep(2000);
         assertFalse("A two-second delivery pause exhausted the reserve", engine.buffering);
@@ -247,7 +251,7 @@ public class StreamingTest {
             engine.droppedVideoFrames - droppedBefore < 12);
         assertTrue("Buffered fullscreen playback had a visible presentation stall: " + engine.longestPresentationGapNs,
             engine.longestPresentationGapNs < 200_000_000L);
-        assertTrue("Frame deadlines jumped while the audio timestamp warmed up: " + engine.maxScheduleSpacingErrorUs,
+        assertTrue("Steady fullscreen frame deadlines were irregular: " + engine.maxScheduleSpacingErrorUs,
             engine.maxScheduleSpacingErrorUs < 60_000L);
         assertTrue("Frames were not scheduled onto the display clock", engine.lastScheduledNs > 0);
         assertTrue("Surface callbacks did not confirm actual frame presentation",
