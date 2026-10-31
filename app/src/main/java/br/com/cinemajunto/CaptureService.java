@@ -26,8 +26,6 @@ import org.json.JSONObject;
 
 public class CaptureService extends Service {
     public static volatile boolean active, starting;
-    public static volatile String directOffer = "";
-    public static volatile DirectSocket directHost;
     public static boolean supportsSingleAppSharing() { return Build.VERSION.SDK_INT >= 34; }
     volatile boolean running, connected;
     volatile WebSocket socket;
@@ -138,11 +136,6 @@ public class CaptureService extends Service {
             if (!sendChat(text)) status("Chat desconectado. Tente novamente.");
             return START_NOT_STICKY;
         }
-        if ("DIRECT_ANSWER".equals(intent.getAction())) {
-            DirectSocket host = directHost;
-            if (running && host != null) host.acceptAnswer(intent.getStringExtra("answer"));
-            return START_NOT_STICKY;
-        }
         if (running) return START_NOT_STICKY;
         starting = true;
         try {
@@ -180,7 +173,6 @@ public class CaptureService extends Service {
             createVoice();
             String url = intent.getStringExtra("endpoint").replaceFirst("^https", "wss") + "relay";
             String room = intent.getStringExtra("room");
-            directOffer = "";
             WebSocketListener directListener = new WebSocketListener() {
                 @Override public void onOpen(WebSocket ws, Response response) {
                     try { ws.send(new JSONObject().put("room", room).put("role", "host").put("device", RoomPassword.device(CaptureService.this)).toString()); } catch (Exception ignored) {}
@@ -210,11 +202,8 @@ public class CaptureService extends Service {
                 @Override public void onClosing(WebSocket ws, int code, String reason) { ws.close(code, reason); }
                 @Override public void onClosed(WebSocket ws, int code, String reason) { if (running) { status(reason); stopSelf(); } }
             };
-            directHost = new DirectSocket(this, true, null, directListener, code -> {
-                if (running) { directOffer = code; status("Convite pronto. Volte ao Cinema Direto e toque em Enviar convite."); }
-            });
-            socket = directHost;
-            status("Preparando convite de conexão direta…");
+            socket = new DirectRoomSocket(this, true, intent.getStringExtra("endpoint"), room, directListener);
+            status("Criando sala com sua palavra de 4 letras…");
             captureAudio();
         } catch (Exception e) { status("Não foi possível capturar a tela e o som: " + e.getClass().getSimpleName()); stopSelf(); }
         return START_NOT_STICKY;
@@ -402,7 +391,6 @@ public class CaptureService extends Service {
     }
     @Override public void onDestroy() {
         running = false; connected = false; active = false; starting = false;
-        directOffer = ""; directHost = null;
         if (displayManager != null) displayManager.unregisterDisplayListener(rotationListener);
         main.removeCallbacksAndMessages(null);
         VoiceTalk talk = voice; voice = null; if (talk != null) talk.close();

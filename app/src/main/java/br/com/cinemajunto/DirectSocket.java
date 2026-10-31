@@ -17,6 +17,7 @@ final class DirectSocket implements WebSocket {
     interface Codes { void ready(String code); }
     private static boolean initialized;
     private final boolean host;
+    private final boolean roomMode;
     private final WebSocketListener listener;
     private final Codes codes;
     private final HandlerThread thread = new HandlerThread("CinemaDireto");
@@ -40,6 +41,10 @@ final class DirectSocket implements WebSocket {
     private static final long MAX_QUEUE = 4 * 1024 * 1024;
 
     DirectSocket(Context context, boolean host, String offer, WebSocketListener listener, Codes codes) {
+        this(context, host, offer, listener, codes, false);
+    }
+    DirectSocket(Context context, boolean host, String offer, WebSocketListener listener, Codes codes, boolean roomMode) {
+        this.roomMode = roomMode;
         this.host = host; this.listener = listener; this.codes = codes;
         thread.start(); worker = new Handler(thread.getLooper());
         worker.post(() -> {
@@ -170,6 +175,7 @@ final class DirectSocket implements WebSocket {
         } catch (Exception e) { fail("Dados inválidos na conexão direta."); }
     }
     private void receiveText(String text) throws Exception {
+        if (roomMode) { listener.onMessage(this, text); return; }
         JSONObject data = new JSONObject(text);
         String type = data.optString("type");
         if ("talk-request".equals(type)) { if (host) changeTalk(data.optBoolean("active"), "viewer"); return; }
@@ -190,6 +196,7 @@ final class DirectSocket implements WebSocket {
     }
     @Override public boolean send(String text) {
         if (closed || !opened || text == null || text.length() > 8192) return false;
+        if (roomMode) return sendRaw(text.getBytes(StandardCharsets.UTF_8), false);
         try {
             JSONObject data = new JSONObject(text);
             if (data.has("role")) {

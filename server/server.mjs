@@ -1,4 +1,5 @@
 import http from 'node:http';
+import { attachSignaling } from './signaling.mjs';
 import { WebSocketServer, WebSocket } from 'ws';
 import { pathToFileURL } from 'node:url';
 import { isIP } from 'node:net';
@@ -138,8 +139,10 @@ export function createRelay({ ttlMs = 2 * 60 * 60 * 1000, mediaBufferLimitBytes 
     res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
     res.end('Cinema Junto: servidor ativo. Use o aplicativo Android.');
   });
+  const signaling = attachSignaling(server);
   const wss = new WebSocketServer({ noServer: true, maxPayload: 512 * 1024, perMessageDeflate: false });
   server.on('upgrade', (req, socket, head) => {
+    if (req.url === '/signal') return;
     if (req.url !== '/relay' || wss.clients.size >= 100) { socket.destroy(); return; }
     wss.handleUpgrade(req, socket, head, ws => wss.emit('connection', ws, req));
   });
@@ -257,6 +260,7 @@ export function createRelay({ ttlMs = 2 * 60 * 60 * 1000, mediaBufferLimitBytes 
     server, rooms,
     async close() {
       clearInterval(heartbeat);
+      await signaling.close();
       for (const room of rooms.values()) { clearTimeout(room.timer); clearTimeout(room.talkTimer); }
       for (const ws of wss.clients) ws.terminate();
       await new Promise(resolve => wss.close(resolve));

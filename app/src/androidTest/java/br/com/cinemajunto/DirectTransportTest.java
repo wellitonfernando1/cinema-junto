@@ -14,12 +14,12 @@ import org.json.JSONObject;
 
 @RunWith(AndroidJUnit4.class)
 public class DirectTransportTest {
-    @Test public void setupShowsOfflinePairingAndKeepsServerAddressHidden() throws Exception {
+    @Test public void setupShowsFourLetterWordAndClearInviteButton() throws Exception {
         try (androidx.test.core.app.ActivityScenario<MainActivity> scenario = androidx.test.core.app.ActivityScenario.launch(MainActivity.class)) {
             scenario.onActivity(activity -> {
                 assertEquals(android.view.View.GONE, activity.endpoint.getVisibility());
-                assertEquals("https://direct.invalid/", activity.endpoint.getText().toString());
-                assertTrue(activity.invitation.getHint().toString().contains("CJ19"));
+                assertEquals("https://cinema-junto-welliton.onrender.com/", activity.endpoint.getText().toString());
+                assertTrue(activity.invitation.getHint().toString().contains("4 letras"));
                 assertEquals(android.view.View.VISIBLE, activity.setupScroll.getVisibility());
             });
             androidx.test.uiautomator.UiDevice device = androidx.test.uiautomator.UiDevice.getInstance(androidx.test.platform.app.InstrumentationRegistry.getInstrumentation());
