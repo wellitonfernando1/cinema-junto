@@ -18,7 +18,7 @@ public class DirectTransportTest {
         try (androidx.test.core.app.ActivityScenario<MainActivity> scenario = androidx.test.core.app.ActivityScenario.launch(MainActivity.class)) {
             scenario.onActivity(activity -> {
                 assertEquals(android.view.View.GONE, activity.endpoint.getVisibility());
-                assertEquals("https://cinema-junto-welliton.onrender.com/", activity.endpoint.getText().toString());
+                assertEquals("https://0.peerjs.com/", activity.endpoint.getText().toString());
                 assertTrue(activity.invitation.getHint().toString().contains("4 letras"));
                 assertEquals(android.view.View.VISIBLE, activity.setupScroll.getVisibility());
             });

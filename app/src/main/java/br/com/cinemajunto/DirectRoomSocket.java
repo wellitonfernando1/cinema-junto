@@ -34,16 +34,18 @@ final class DirectRoomSocket implements WebSocket {
         worker.post(() -> {
             if (closed) return;
             worker.postDelayed(timeout, 90000);
-            signal = client.newWebSocket(new Request.Builder().url(endpoint.replaceFirst("^https", "wss") + "signal").build(), new WebSocketListener() {
+            WebSocketListener signalListener = new WebSocketListener() {
                 public void onOpen(WebSocket ws, Response response) {
                     try { ws.send(new JSONObject().put("role", host ? "host" : "viewer").put("room", room).toString()); }
                     catch (Exception e) { worker.post(() -> fail("Não foi possível abrir a sala.")); }
                 }
                 public void onMessage(WebSocket ws, String text) { worker.post(() -> signaling(text)); }
-                public void onFailure(WebSocket ws, Throwable t, Response response) { worker.post(() -> fail("Não foi possível localizar a sala. Confira a internet e tente novamente.")); }
+                public void onFailure(WebSocket ws, Throwable t, Response response) { worker.post(() -> fail(t.getMessage() == null ? "Não foi possível localizar a sala. Confira a internet e tente novamente." : t.getMessage())); }
                 public void onClosing(WebSocket ws, int code, String reason) { ws.close(code, reason); }
                 public void onClosed(WebSocket ws, int code, String reason) { worker.post(() -> fail(reason.isEmpty() ? "Sala encerrada." : reason)); }
-            });
+            };
+            if (endpoint.contains("peerjs.com") || endpoint.contains("10001")) signal = new CloudSignal(client, host, room, endpoint, signalListener);
+            else signal = client.newWebSocket(new Request.Builder().url(endpoint.replaceFirst("^https", "wss") + "signal").build(), signalListener);
         });
     }
     private void signaling(String text) {

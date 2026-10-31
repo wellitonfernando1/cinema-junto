@@ -78,7 +78,7 @@ public class MainActivity extends Activity {
         TextView subtitle = new TextView(this); subtitle.setTextColor(Color.BLACK); subtitle.setText("Alta qualidade · até " + BuildConfig.CAPTURE_FPS + " fps · reserva de 5 segundos"); controls.addView(subtitle);
         endpoint = new EditText(this); endpoint.setSingleLine(true); endpoint.setHint("Endereço do servidor");
         readableInput(endpoint);
-        endpoint.setText("https://cinema-junto-welliton.onrender.com/"); endpoint.setVisibility(View.GONE); controls.addView(endpoint);
+        endpoint.setText("https://0.peerjs.com/"); endpoint.setVisibility(View.GONE); controls.addView(endpoint);
         roomWord = new TextView(this); roomWord.setTextSize(26); roomWord.setTextColor(Color.BLACK);
         roomWord.setPadding(0, dp(12), 0, dp(12)); roomWord.setTextIsSelectable(true);
         roomWord.setText(CaptureService.active || CaptureService.starting
@@ -451,10 +451,10 @@ public class MainActivity extends Activity {
         if (!CaptureService.active || word.isEmpty()) { show("Toque em Criar sala e aguarde a confirmação antes de convidar."); return; }
         String visible = word.toUpperCase(java.util.Locale.ROOT);
         new AlertDialog.Builder(this).setTitle("Convidar pessoa · " + visible)
-            .setMessage("Palavra da sala: " + visible + "\n\nEnvie a mesma palavra para as duas pessoas. No Cinema Direto 0.20, elas digitam a palavra e tocam em Entrar na sala.")
+            .setMessage("Palavra da sala: " + visible + "\n\nEnvie a mesma palavra para as duas pessoas. No Cinema Direto 0.21, elas digitam a palavra e tocam em Entrar na sala.")
             .setPositiveButton("Enviar convite", (d, w) -> {
                 Intent send = new Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT,
-                    "Vamos assistir juntos! No Cinema Direto 0.20, digite a palavra " + visible + " e toque em Entrar na sala. Até 3 pessoas na mesma sala.");
+                    "Vamos assistir juntos! No Cinema Direto 0.21, digite a palavra " + visible + " e toque em Entrar na sala. Até 3 pessoas na mesma sala.");
                 startActivity(Intent.createChooser(send, "Enviar convite"));
             }).setNeutralButton("Copiar palavra", (d, w) -> {
                 getSystemService(android.content.ClipboardManager.class).setPrimaryClip(ClipData.newPlainText("Palavra da sala", visible));

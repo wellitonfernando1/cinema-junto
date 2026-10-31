@@ -39,8 +39,14 @@ public class DirectRoomTest {
         }
     }
     @Test public void threePeersAutomaticallyConnectAndExchangeMovieChatAndVoice() throws Exception {
+        verifyThreePeers("http://127.0.0.1:10001/");
+    }
+    @Test public void threePeersConnectThroughLivePublicSignaling() throws Exception {
+        verifyThreePeers("https://0.peerjs.com/");
+    }
+    void verifyThreePeers(String endpoint) throws Exception {
         Context c = ApplicationProvider.getApplicationContext();
-        String key = RoomPassword.room("gato"); String endpoint = "http://127.0.0.1:10000/";
+        String key = RoomPassword.room(java.util.UUID.randomUUID().toString().replace("-", "").substring(0,16));
         Events h = new Events(), a = new Events(), b = new Events(), full = new Events();
         DirectRoomSocket host = new DirectRoomSocket(c, true, endpoint, key, h), one = null, two = null, fourth = null;
         try {
