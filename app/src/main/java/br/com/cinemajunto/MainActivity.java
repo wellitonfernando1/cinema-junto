@@ -74,22 +74,24 @@ public class MainActivity extends Activity {
         controls = new LinearLayout(this); controls.setOrientation(LinearLayout.VERTICAL);
         controls.setPadding(dp(16), dp(12), dp(16), dp(12)); controls.setBackgroundColor(0xfffafafa);
         setupScroll.addView(controls); mainLayout.addView(setupScroll, new LinearLayout.LayoutParams(-1, 0, 1));
-        TextView title = new TextView(this); title.setTextColor(Color.BLACK); title.setText("Cinema Junto · " + BuildConfig.VERSION_NAME); title.setTextSize(24); controls.addView(title);
+        TextView title = new TextView(this); title.setTextColor(Color.BLACK); title.setText("Cinema Direto · " + BuildConfig.VERSION_NAME); title.setTextSize(24); controls.addView(title);
         TextView subtitle = new TextView(this); subtitle.setTextColor(Color.BLACK); subtitle.setText("Alta qualidade · até " + BuildConfig.CAPTURE_FPS + " fps · reserva de 5 segundos"); controls.addView(subtitle);
         endpoint = new EditText(this); endpoint.setSingleLine(true); endpoint.setHint("Endereço do servidor");
         readableInput(endpoint);
-        endpoint.setText(getPreferences(0).getString("endpoint", "https://cinema-junto-welliton.onrender.com/")); controls.addView(endpoint);
-        invitation = new EditText(this); invitation.setSingleLine(true); invitation.setHint("Digite a senha criada por quem transmite");
+        endpoint.setText("https://direct.invalid/"); endpoint.setVisibility(View.GONE); controls.addView(endpoint);
+        invitation = new EditText(this); invitation.setSingleLine(false); invitation.setMinLines(2); invitation.setMaxLines(4); invitation.setHint("Cole aqui o convite CJ19 recebido");
         invitation.setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD | android.text.InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
-        invitation.setContentDescription("Senha da sala");
+        invitation.setContentDescription("Convite de conexão direta");
         readableInput(invitation);
-        if (CaptureService.active || CaptureService.starting) invitation.setText(getPreferences(0).getString("hostInvite", "")); controls.addView(invitation);
-        button(controls, "Transmitir minha tela e o som", () -> startHost());
-        button(controls, "Compartilhar senha", () -> share());
-        button(controls, "Assistir com a senha", () -> startViewer());
+        controls.addView(invitation);
+        button(controls, "1. Criar transmissão direta", () -> startHostWithPassword("direto19"));
+        button(controls, "2. Enviar convite", () -> share());
+        button(controls, "3. Inserir resposta do amigo", () -> enterDirectAnswer());
+        button(controls, "Recebi um convite: preparar resposta", () -> startViewer());
+        button(controls, "Reabrir minha resposta", () -> { if (directAnswer.isEmpty()) show("Cole um convite e prepare a resposta primeiro."); else showDirectCode(directAnswer, "Envie esta resposta a quem transmite"); });
         button(controls, "Chat de quem transmite", () -> openHostChat());
         button(controls, "Encerrar", () -> endSession());
-        status = new TextView(this); status.setTextColor(Color.BLACK); status.setText("Quem transmite cria uma senha. O amigo digita a mesma senha para entrar. Até cinco aparelhos por sala: um transmite e quatro assistem e conversam."); controls.addView(status);
+        status = new TextView(this); status.setTextColor(Color.BLACK); status.setText("Quem transmite envia um convite. O amigo cola o convite e devolve uma resposta. Quem transmite cola essa resposta para conectar. Não usa o Render. Este teste conecta dois aparelhos diretamente."); controls.addView(status);
         TextView tip = new TextView(this);
         tip.setTextColor(Color.BLACK);
         tip.setText(CaptureService.supportsSingleAppSharing()
@@ -213,8 +215,8 @@ public class MainActivity extends Activity {
         if (chatOpen && keyboardSeen && !visible) root.post(() -> { if (chatOpen && !imeVisible) closeChat(); });
     }
     void updateLayout() {
-        setupScroll.setVisibility(watching ? View.GONE : View.VISIBLE);
-        videoPane.setVisibility(watching ? View.VISIBLE : View.GONE);
+        setupScroll.setVisibility(watching && viewerJoined ? View.GONE : View.VISIBLE);
+        videoPane.setVisibility(watching && viewerJoined ? View.VISIBLE : View.GONE);
         fullscreenButton.setText(fullscreen ? "Voltar" : "Tela cheia");
         if (!watching && chatOpen) closeChat();
         root.requestLayout(); screen.invalidate();
@@ -435,14 +437,38 @@ public class MainActivity extends Activity {
         CaptureService.starting = true;
         try { startForegroundService(service); }
         catch (Exception error) { CaptureService.starting = false; show("Não foi possível iniciar a transmissão. Tente novamente."); return; }
-        invitation.setText(pendingPassword); getPreferences(0).edit().putString("hostInvite", pendingPassword).apply();
-        show("Conectando… aguarde a confirmação antes de enviar a senha.");
+        invitation.setText("");
+        show("Preparando conexão direta. Aguarde e toque em Enviar convite.");
     }
+    String directAnswer = "";
     void share() {
-        String value = getPreferences(0).getString("hostInvite", "");
-        if (!CaptureService.active || value.isEmpty()) { show("Inicie a transmissão e aguarde a conexão primeiro."); return; }
-        Intent send = new Intent(Intent.ACTION_SEND); send.setType("text/plain"); send.putExtra(Intent.EXTRA_TEXT, value);
-        startActivity(Intent.createChooser(send, "Envie a senha ao seu amigo para digitar no Cinema Junto."));
+        String value = CaptureService.directOffer;
+        if (value.isEmpty()) { show("Primeiro crie a transmissão. A preparação do convite pode levar alguns segundos."); return; }
+        showDirectCode(value, "Envie o convite ao amigo");
+    }
+    void showDirectCode(String code, String title) {
+        new AlertDialog.Builder(this).setTitle(title)
+            .setMessage("Copie ou compartilhe o código completo. Ele vale por 15 minutos e contém os dados de conexão dos aparelhos. Envie apenas ao seu amigo.")
+            .setPositiveButton("Compartilhar", (d, w) -> {
+                Intent send = new Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, code);
+                startActivity(Intent.createChooser(send, title));
+            }).setNeutralButton("Copiar", (d, w) -> {
+                getSystemService(android.content.ClipboardManager.class).setPrimaryClip(ClipData.newPlainText("Cinema Direto", code));
+                Toast.makeText(this, "Código copiado", Toast.LENGTH_SHORT).show();
+            }).setNegativeButton("Fechar", null).show();
+    }
+    void enterDirectAnswer() {
+        if (CaptureService.directHost == null) { show("Crie a transmissão e envie o convite primeiro."); return; }
+        EditText input = new EditText(this); readableInput(input); input.setHint("Cole a resposta CJ19 do amigo"); input.setMaxLines(5);
+        AlertDialog dialog = new AlertDialog.Builder(this).setTitle("Resposta do amigo").setView(input)
+            .setPositiveButton("Conectar", null).setNegativeButton("Cancelar", null).create();
+        dialog.setOnShowListener(v -> dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(b -> {
+            try {
+                String code = input.getText().toString().trim(); DirectInvite.decode(code, "answer");
+                startService(new Intent(this, CaptureService.class).setAction("DIRECT_ANSWER").putExtra("answer", code));
+                dialog.dismiss(); show("Tentando conectar diretamente…");
+            } catch (Exception e) { input.setError(e.getMessage()); }
+        })); dialog.show();
     }
     void dismissSetupKeyboard() {
         root.setFocusableInTouchMode(true); root.requestFocus();
@@ -456,21 +482,13 @@ public class MainActivity extends Activity {
         try {
             if (CaptureService.active || CaptureService.starting || hostFlowPending) { show("Encerre ou cancele sua transmissão antes de assistir."); return; }
             String value = invitation.getText().toString().trim();
-            String base, room;
-            if (value.startsWith("https://")) {
-                // Old full invitations remain usable for existing sessions.
-                Uri uri = Uri.parse(value); base = validEndpoint(value); room = uri.getFragment();
-                if (room == null || !room.matches("[a-f0-9]{64}")) throw new IllegalArgumentException("Digite a senha criada por quem transmite.");
-            } else {
-                value = RoomPassword.normalize(value); base = validEndpoint(endpoint.getText().toString());
-                room = RoomPassword.room(value); invitation.setText(value);
-            }
+            DirectInvite.decode(value, "offer");
+            String base = "https://direct.invalid/", room = "";
             dismissSetupKeyboard();
-            stopViewer(); endpoint.setText(base); watching = true; updateLayout();
-            getPreferences(0).edit().putString("endpoint", base).apply();
-            startPlayback(); startVoice(); show("Conectando ao seu amigo…");
-            String url = base.replaceFirst("^https", "wss") + "relay";
-            socket = client.newWebSocket(new Request.Builder().url(url).build(), new WebSocketListener() {
+            stopViewer(); directAnswer = ""; watching = true; updateLayout();
+            startPlayback(); startVoice(); show("Preparando resposta. Envie a resposta para quem transmite e aguarde a conexão…");
+            WebSocketListener directListener = new WebSocketListener() {
+
                 @Override public void onOpen(WebSocket ws, Response response) {
                     try { ws.send(new JSONObject().put("role", "viewer").put("room", room).put("device", RoomPassword.device(MainActivity.this)).toString()); } catch (Exception ignored) {}
                 }
@@ -488,7 +506,7 @@ public class MainActivity extends Activity {
                         else if (msg.has("status")) {
                             if (msg.optBoolean("joined")) {
                                 ui.post(() -> {
-                                    if (watching && socket == ws) { viewerJoined = true; microphone.setEnabled(true); }
+                                    if (watching && socket == ws) { viewerJoined = true; microphone.setEnabled(true); updateLayout(); }
                                 });
                             }
                             show(msg.optString("status"));
@@ -504,10 +522,14 @@ public class MainActivity extends Activity {
                     PlaybackEngine engine = playback;
                     if (engine != null) engine.offer(message.toByteArray());
                 }
-                @Override public void onFailure(WebSocket ws, Throwable t, Response response) { runOnUiThread(() -> { if (socket == ws) { stopViewer(); show("Conexão falhou. Confira a senha e tente novamente."); } }); }
+                @Override public void onFailure(WebSocket ws, Throwable t, Response response) { runOnUiThread(() -> { if (socket == ws) { stopViewer(); show(t.getMessage()); } }); }
                 @Override public void onClosing(WebSocket ws, int code, String reason) { ws.close(code, reason); }
                 @Override public void onClosed(WebSocket ws, int code, String reason) { runOnUiThread(() -> { if (socket == ws) { stopViewer(); show(reason); } }); }
-            });
+            };
+            socket = new DirectSocket(this, false, value, directListener, code -> ui.post(() -> {
+                if (!watching || destroyed) return;
+                directAnswer = code; showDirectCode(code, "Envie esta resposta a quem transmite");
+            }));
         } catch (Exception e) { stopViewer(); show(e.getMessage()); }
     }
     void startPlayback() {

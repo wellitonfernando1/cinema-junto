@@ -4,16 +4,16 @@ android {
     namespace 'br.com.cinemajunto'
     compileSdk 35
     defaultConfig {
-        applicationId "br.com.cinemajunto.v18"
-        manifestPlaceholders = [appLabel: "Cinema Junto 0.18"]
+        applicationId "br.com.cinemajunto.direto19"
+        manifestPlaceholders = [appLabel: "Cinema Direto 0.19"]
         buildConfigField 'int', 'CAPTURE_FPS', '60'
         buildConfigField 'int', 'CAPTURE_EDGE', '1920'
         buildConfigField 'int', 'CAPTURE_BITRATE', '8000000'
         minSdk 29
         targetSdk 35
         testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
-        versionCode 18
-        versionName "0.18"
+        versionCode 19
+        versionName "0.19-direto"
     }
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
@@ -22,6 +22,7 @@ android {
 }
 dependencies {
     implementation 'com.squareup.okhttp3:okhttp:4.12.0'
+    implementation 'io.github.webrtc-sdk:android:144.7559.12'
     androidTestImplementation 'androidx.test:runner:1.6.2'
     androidTestImplementation 'androidx.test:core:1.6.1'
     androidTestImplementation 'androidx.test.ext:junit:1.2.1'
