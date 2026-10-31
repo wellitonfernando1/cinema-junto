@@ -125,7 +125,7 @@ final class DirectSocket implements WebSocket {
             if (dc != null) dc.dispose(); fail("Canal direto inválido."); return;
         }
         channel = dc;
-        dc.registerObserver(new DataChannel.Observer() {
+        DataChannel.Observer observer = new DataChannel.Observer() {
             public void onBufferedAmountChange(long previous) {}
             public void onStateChange() { worker.post(() -> {
                 if (closed) return;
@@ -143,7 +143,10 @@ final class DirectSocket implements WebSocket {
                 byte[] copy = new byte[size]; data.get(copy);
                 worker.post(() -> { try { receive(copy); } finally { pendingBytes.addAndGet(-size); } });
             }
-        });
+        };
+        dc.registerObserver(observer);
+        // Remote onDataChannel may arrive after the channel has already opened.
+        observer.onStateChange();
     }
     private void receive(byte[] chunk) {
         if (closed) return;
