@@ -5,15 +5,15 @@ android {
     compileSdk 35
     defaultConfig {
         applicationId "br.com.cinemajunto.direto19"
-        manifestPlaceholders = [appLabel: "Cinema Direto 0.20"]
+        manifestPlaceholders = [appLabel: "Cinema Direto 0.21"]
         buildConfigField 'int', 'CAPTURE_FPS', '60'
         buildConfigField 'int', 'CAPTURE_EDGE', '1920'
         buildConfigField 'int', 'CAPTURE_BITRATE', '8000000'
         minSdk 29
         targetSdk 35
         testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
-        versionCode 20
-        versionName "0.20-direto"
+        versionCode 21
+        versionName "0.21-direto"
     }
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17

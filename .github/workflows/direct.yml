@@ -1,8 +1,8 @@
-name: Cinema Direto 0.20
+name: Cinema Direto 0.21
 on:
   workflow_dispatch:
   push:
-    branches: [feature/direct-0.19, feature/direct-word-0.20]
+    branches: [feature/direct-0.19, feature/direct-word-0.20, feature/direct-word-0.21]
 permissions:
   contents: read
 jobs:
@@ -22,7 +22,7 @@ jobs:
       - run: gradle :app:assembleDebug :app:assembleDebugAndroidTest --no-daemon
       - uses: actions/upload-artifact@v4
         with:
-          name: Cinema-Direto-0.20-APK
+          name: Cinema-Direto-0.21-APK
           path: app/build/outputs/apk/debug/app-debug.apk
           retention-days: 14
       - uses: actions/upload-artifact@v4
