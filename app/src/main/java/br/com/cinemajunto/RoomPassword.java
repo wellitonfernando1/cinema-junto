@@ -10,6 +10,12 @@ import java.util.UUID;
 
 /** A word is shown to people; only its derived room key is sent to the relay. */
 final class RoomPassword {
+    static String fourLetters(String input) {
+        String word = input == null ? "" : input.trim().toLowerCase(Locale.ROOT);
+        if (!word.matches("[a-z]{4}"))
+            throw new IllegalArgumentException("Use exatamente 4 letras sem acentos, como GATO.");
+        return word;
+    }
     static String normalize(String input) {
         String word = Normalizer.normalize(input == null ? "" : input.trim(), Normalizer.Form.NFD)
             .replaceAll("\\p{M}+", "").toLowerCase(Locale.ROOT);

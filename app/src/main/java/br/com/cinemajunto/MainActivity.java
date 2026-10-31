@@ -28,7 +28,7 @@ import org.json.JSONObject;
 
 public class MainActivity extends Activity {
     EditText endpoint, invitation, chatInput;
-    TextView status, chatHistory, messageBanner, loading;
+    TextView status, chatHistory, messageBanner, loading, roomWord;
     FilmView screen;
     ScrollView setupScroll, chatScroll;
     LinearLayout mainLayout, controls, viewerBar, chatPanel, emojiRow;
@@ -78,20 +78,23 @@ public class MainActivity extends Activity {
         TextView subtitle = new TextView(this); subtitle.setTextColor(Color.BLACK); subtitle.setText("Alta qualidade · até " + BuildConfig.CAPTURE_FPS + " fps · reserva de 5 segundos"); controls.addView(subtitle);
         endpoint = new EditText(this); endpoint.setSingleLine(true); endpoint.setHint("Endereço do servidor");
         readableInput(endpoint);
-        endpoint.setText("https://direct.invalid/"); endpoint.setVisibility(View.GONE); controls.addView(endpoint);
-        invitation = new EditText(this); invitation.setSingleLine(false); invitation.setMinLines(2); invitation.setMaxLines(4); invitation.setHint("Cole aqui o convite CJ19 recebido");
+        endpoint.setText("https://cinema-junto-welliton.onrender.com/"); endpoint.setVisibility(View.GONE); controls.addView(endpoint);
+        roomWord = new TextView(this); roomWord.setTextSize(26); roomWord.setTextColor(Color.BLACK);
+        roomWord.setPadding(0, dp(12), 0, dp(12)); roomWord.setTextIsSelectable(true);
+        roomWord.setText(CaptureService.active || CaptureService.starting
+            ? "PALAVRA DA SALA: " + getPreferences(0).getString("hostInvite", "").toUpperCase(java.util.Locale.ROOT)
+            : "Uma palavra de 4 letras para entrar"); controls.addView(roomWord);
+        button(controls, "Criar sala", () -> startHost());
+        button(controls, "Convidar pessoa", () -> share());
+        invitation = new EditText(this); invitation.setSingleLine(true); invitation.setHint("Palavra de 4 letras, ex.: GATO");
+        invitation.setFilters(new InputFilter[]{new InputFilter.LengthFilter(4)});
         invitation.setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD | android.text.InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
-        invitation.setContentDescription("Convite de conexão direta");
-        readableInput(invitation);
-        controls.addView(invitation);
-        button(controls, "1. Criar transmissão direta", () -> startHostWithPassword("direto19"));
-        button(controls, "2. Enviar convite", () -> share());
-        button(controls, "3. Inserir resposta do amigo", () -> enterDirectAnswer());
-        button(controls, "Recebi um convite: preparar resposta", () -> startViewer());
-        button(controls, "Reabrir minha resposta", () -> { if (directAnswer.isEmpty()) show("Cole um convite e prepare a resposta primeiro."); else showDirectCode(directAnswer, "Envie esta resposta a quem transmite"); });
+        invitation.setContentDescription("Palavra de 4 letras"); readableInput(invitation); controls.addView(invitation);
+        button(controls, "Entrar na sala", () -> startViewer());
         button(controls, "Chat de quem transmite", () -> openHostChat());
         button(controls, "Encerrar", () -> endSession());
-        status = new TextView(this); status.setTextColor(Color.BLACK); status.setText("Quem transmite envia um convite. O amigo cola o convite e devolve uma resposta. Quem transmite cola essa resposta para conectar. Não usa o Render. Este teste conecta dois aparelhos diretamente."); controls.addView(status);
+        status = new TextView(this); status.setTextColor(Color.BLACK);
+        status.setText("Até 3 pessoas: você e mais duas. Quem transmite cria uma palavra de 4 letras e toca em Convidar pessoa. Os convidados digitam a mesma palavra e tocam em Entrar na sala."); controls.addView(status);
         TextView tip = new TextView(this);
         tip.setTextColor(Color.BLACK);
         tip.setText(CaptureService.supportsSingleAppSharing()
@@ -359,17 +362,18 @@ public class MainActivity extends Activity {
         LinearLayout box = new LinearLayout(this); box.setOrientation(LinearLayout.VERTICAL);
         box.setPadding(dp(20), dp(8), dp(20), dp(8));
         TextView explanation = new TextView(this); explanation.setTextColor(Color.BLACK);
-        explanation.setText("Escolha uma palavra de 4 a 24 letras ou números, como pipoca42. Envie só essa senha ao seu amigo. Cada sala aceita até cinco aparelhos.");
+        explanation.setText("Escolha uma palavra com exatamente 4 letras, como GATO. Até 3 pessoas podem entrar: você e mais duas.");
         box.addView(explanation);
         EditText word = new EditText(this); word.setSingleLine(true); readableInput(word);
         word.setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD | android.text.InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
-        word.setHint("Sua senha, por exemplo pipoca42"); word.setContentDescription("Senha que você vai criar");
+        word.setHint("Palavra de 4 letras, ex.: GATO"); word.setContentDescription("Palavra que você vai criar");
+        word.setFilters(new InputFilter[]{new InputFilter.LengthFilter(4)});
         box.addView(word);
-        AlertDialog dialog = new AlertDialog.Builder(this).setTitle("Criar senha da sala").setView(box)
+        AlertDialog dialog = new AlertDialog.Builder(this).setTitle("Criar palavra da sala").setView(box)
             .setPositiveButton("Criar sala", null).setNegativeButton("Cancelar", null).create();
         dialog.setOnShowListener(ignored -> dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(button -> {
             try {
-                String value = RoomPassword.normalize(word.getText().toString());
+                String value = RoomPassword.fourLetters(word.getText().toString());
                 validEndpoint(endpoint.getText().toString()); dialog.dismiss(); startHostWithPassword(value);
             } catch (IllegalArgumentException error) { word.setError(error.getMessage()); }
         }));
@@ -378,7 +382,7 @@ public class MainActivity extends Activity {
     void startHostWithPassword(String password) {
         try {
             if (CaptureService.active || CaptureService.starting || hostFlowPending) { show("A transmissão já está iniciando ou ativa. Encerre antes de criar outra sala."); return; }
-            pendingPassword = RoomPassword.normalize(password); pendingRoom = RoomPassword.room(pendingPassword);
+            pendingPassword = RoomPassword.fourLetters(password); pendingRoom = RoomPassword.room(pendingPassword);
             stopViewer(); pendingEndpoint = validEndpoint(endpoint.getText().toString());
             hostFlowPending = true;
             getPreferences(0).edit().putString("endpoint", pendingEndpoint).apply();
@@ -437,38 +441,25 @@ public class MainActivity extends Activity {
         CaptureService.starting = true;
         try { startForegroundService(service); }
         catch (Exception error) { CaptureService.starting = false; show("Não foi possível iniciar a transmissão. Tente novamente."); return; }
+        getPreferences(0).edit().putString("hostInvite", pendingPassword).apply();
+        roomWord.setText("PALAVRA DA SALA: " + pendingPassword.toUpperCase(java.util.Locale.ROOT));
         invitation.setText("");
-        show("Preparando conexão direta. Aguarde e toque em Enviar convite.");
+        show("Criando sala… aguarde para convidar as duas pessoas.");
     }
-    String directAnswer = "";
     void share() {
-        String value = CaptureService.directOffer;
-        if (value.isEmpty()) { show("Primeiro crie a transmissão. A preparação do convite pode levar alguns segundos."); return; }
-        showDirectCode(value, "Envie o convite ao amigo");
-    }
-    void showDirectCode(String code, String title) {
-        new AlertDialog.Builder(this).setTitle(title)
-            .setMessage("Copie ou compartilhe o código completo. Ele vale por 15 minutos e contém os dados de conexão dos aparelhos. Envie apenas ao seu amigo.")
-            .setPositiveButton("Compartilhar", (d, w) -> {
-                Intent send = new Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, code);
-                startActivity(Intent.createChooser(send, title));
-            }).setNeutralButton("Copiar", (d, w) -> {
-                getSystemService(android.content.ClipboardManager.class).setPrimaryClip(ClipData.newPlainText("Cinema Direto", code));
-                Toast.makeText(this, "Código copiado", Toast.LENGTH_SHORT).show();
+        String word = getPreferences(0).getString("hostInvite", "");
+        if (!CaptureService.active || word.isEmpty()) { show("Toque em Criar sala e aguarde a confirmação antes de convidar."); return; }
+        String visible = word.toUpperCase(java.util.Locale.ROOT);
+        new AlertDialog.Builder(this).setTitle("Convidar pessoa · " + visible)
+            .setMessage("Palavra da sala: " + visible + "\n\nEnvie a mesma palavra para as duas pessoas. No Cinema Direto 0.20, elas digitam a palavra e tocam em Entrar na sala.")
+            .setPositiveButton("Enviar convite", (d, w) -> {
+                Intent send = new Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT,
+                    "Vamos assistir juntos! No Cinema Direto 0.20, digite a palavra " + visible + " e toque em Entrar na sala. Até 3 pessoas na mesma sala.");
+                startActivity(Intent.createChooser(send, "Enviar convite"));
+            }).setNeutralButton("Copiar palavra", (d, w) -> {
+                getSystemService(android.content.ClipboardManager.class).setPrimaryClip(ClipData.newPlainText("Palavra da sala", visible));
+                Toast.makeText(this, "Palavra copiada: " + visible, Toast.LENGTH_SHORT).show();
             }).setNegativeButton("Fechar", null).show();
-    }
-    void enterDirectAnswer() {
-        if (CaptureService.directHost == null) { show("Crie a transmissão e envie o convite primeiro."); return; }
-        EditText input = new EditText(this); readableInput(input); input.setHint("Cole a resposta CJ19 do amigo"); input.setMaxLines(5);
-        AlertDialog dialog = new AlertDialog.Builder(this).setTitle("Resposta do amigo").setView(input)
-            .setPositiveButton("Conectar", null).setNegativeButton("Cancelar", null).create();
-        dialog.setOnShowListener(v -> dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(b -> {
-            try {
-                String code = input.getText().toString().trim(); DirectInvite.decode(code, "answer");
-                startService(new Intent(this, CaptureService.class).setAction("DIRECT_ANSWER").putExtra("answer", code));
-                dialog.dismiss(); show("Tentando conectar diretamente…");
-            } catch (Exception e) { input.setError(e.getMessage()); }
-        })); dialog.show();
     }
     void dismissSetupKeyboard() {
         root.setFocusableInTouchMode(true); root.requestFocus();
@@ -481,12 +472,11 @@ public class MainActivity extends Activity {
     void startViewer() {
         try {
             if (CaptureService.active || CaptureService.starting || hostFlowPending) { show("Encerre ou cancele sua transmissão antes de assistir."); return; }
-            String value = invitation.getText().toString().trim();
-            DirectInvite.decode(value, "offer");
-            String base = "https://direct.invalid/", room = "";
+            String value = RoomPassword.fourLetters(invitation.getText().toString());
+            String base = validEndpoint(endpoint.getText().toString()), room = RoomPassword.room(value);
             dismissSetupKeyboard();
-            stopViewer(); directAnswer = ""; watching = true; updateLayout();
-            startPlayback(); startVoice(); show("Preparando resposta. Envie a resposta para quem transmite e aguarde a conexão…");
+            stopViewer(); watching = true; updateLayout();
+            startPlayback(); startVoice(); show("Entrando na sala com a palavra… aguarde a conexão direta.");
             WebSocketListener directListener = new WebSocketListener() {
 
                 @Override public void onOpen(WebSocket ws, Response response) {
@@ -526,10 +516,7 @@ public class MainActivity extends Activity {
                 @Override public void onClosing(WebSocket ws, int code, String reason) { ws.close(code, reason); }
                 @Override public void onClosed(WebSocket ws, int code, String reason) { runOnUiThread(() -> { if (socket == ws) { stopViewer(); show(reason); } }); }
             };
-            socket = new DirectSocket(this, false, value, directListener, code -> ui.post(() -> {
-                if (!watching || destroyed) return;
-                directAnswer = code; showDirectCode(code, "Envie esta resposta a quem transmite");
-            }));
+            socket = new DirectRoomSocket(this, false, base, room, directListener);
         } catch (Exception e) { stopViewer(); show(e.getMessage()); }
     }
     void startPlayback() {
