@@ -12,6 +12,14 @@ server.on('connection', (ws, req) => {
     if (binary) { ws.close(); return; }
     const msg = JSON.parse(bytes.toString()); if (msg.type === 'HEARTBEAT') return;
     if (!['OFFER', 'ANSWER', 'LEAVE', 'CANDIDATE'].includes(msg.type)) return;
+    // Match the hosted service: validate the data-offer envelope and preserve application metadata.
+    if (['OFFER', 'ANSWER'].includes(msg.type)) {
+      const p = msg.payload;
+      if (!p || p.type !== 'data' || typeof p.connectionId !== 'string' || typeof p.label !== 'string' ||
+          typeof p.serialization !== 'string' || typeof p.reliable !== 'boolean' || !p.sdp) return;
+      msg.payload = { type: p.type, connectionId: p.connectionId, label: p.label, serialization: p.serialization,
+        reliable: p.reliable, sdp: p.sdp, metadata: p.metadata };
+    }
     const target = clients.get(msg.dst);
     if (target?.readyState === WebSocket.OPEN) target.send(JSON.stringify({ ...msg, src: id }));
     else ws.send(JSON.stringify({ type: 'EXPIRE', src: msg.dst }));

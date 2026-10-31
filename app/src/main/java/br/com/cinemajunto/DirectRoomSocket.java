@@ -40,7 +40,7 @@ final class DirectRoomSocket implements WebSocket {
                     catch (Exception e) { worker.post(() -> fail("Não foi possível abrir a sala.")); }
                 }
                 public void onMessage(WebSocket ws, String text) { worker.post(() -> signaling(text)); }
-                public void onFailure(WebSocket ws, Throwable t, Response response) { worker.post(() -> fail("Não foi possível localizar a sala. Confira a internet e tente novamente.")); }
+                public void onFailure(WebSocket ws, Throwable t, Response response) { worker.post(() -> fail(t.getMessage() == null ? "Não foi possível localizar a sala. Confira a internet e tente novamente." : t.getMessage())); }
                 public void onClosing(WebSocket ws, int code, String reason) { ws.close(code, reason); }
                 public void onClosed(WebSocket ws, int code, String reason) { worker.post(() -> fail(reason.isEmpty() ? "Sala encerrada." : reason)); }
             };

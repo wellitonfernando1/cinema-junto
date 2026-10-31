@@ -34,7 +34,7 @@ final class CloudSignal implements WebSocket {
         worker.post(() -> {
             if (closed) return;
             String url = base.replaceFirst("^https", "wss").replaceFirst("^http:", "ws:")
-                + "peerjs?key=peerjs&id=" + id + "&token=" + UUID.randomUUID();
+                + "peerjs?key=peerjs&id=" + id + "&token=" + UUID.randomUUID() + "&version=1.5.5";
             socket = client.newWebSocket(new Request.Builder().url(url).build(), new WebSocketListener() {
                 public void onMessage(WebSocket ws, String text) { worker.post(() -> receive(text)); }
                 public void onFailure(WebSocket ws, Throwable t, Response r) { worker.post(() -> fail("Não foi possível abrir a sala. Confira a internet e tente novamente.")); }
@@ -47,9 +47,18 @@ final class CloudSignal implements WebSocket {
     private void relay(String destination, String action, String code) {
         if (closed || socket == null) return;
         try {
-            JSONObject payload = new JSONObject().put("cinema", 21).put("action", action);
-            if (code != null) payload.put("code", code);
-            socket.send(new JSONObject().put("type", "OFFER").put("dst", destination).put("payload", payload).toString());
+            JSONObject metadata = new JSONObject().put("cinema", 21).put("action", action);
+            if (code != null) metadata.put("code", code);
+            JSONObject sdp = new JSONObject().put("type", "offer").put("sdp", "v=0\r\n");
+            if ("signal".equals(action)) {
+                JSONObject invite = DirectInvite.decode(code, host ? "offer" : "answer");
+                sdp.put("type", host ? "offer" : "answer").put("sdp", invite.getString("sdp"));
+            }
+            JSONObject payload = new JSONObject().put("type", "data").put("connectionId", "dc_cinema21")
+                .put("label", "cinema-direct-v1").put("serialization", "raw").put("reliable", true)
+                .put("sdp", sdp).put("metadata", metadata);
+            socket.send(new JSONObject().put("type", host || !"signal".equals(action) ? "OFFER" : "ANSWER")
+                .put("dst", destination).put("payload", payload).toString());
         } catch (Exception ignored) {}
     }
     private void count() {
@@ -84,7 +93,8 @@ final class CloudSignal implements WebSocket {
                 return;
             }
             if (!"OFFER".equals(type) && !"ANSWER".equals(type)) return;
-            JSONObject payload = msg.optJSONObject("payload");
+            JSONObject envelope = msg.optJSONObject("payload");
+            JSONObject payload = envelope == null ? null : envelope.optJSONObject("metadata");
             if (payload == null || payload.optInt("cinema") != 21) return;
             String action = payload.optString("action"), code = payload.optString("code");
             if (host) {
