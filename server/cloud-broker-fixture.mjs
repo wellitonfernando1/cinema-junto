@@ -1,8 +1,17 @@
-// Local protocol fixture for the public PeerServer signaling API. No media transport.
+// Test-only PeerServer fixture and fault control. Neither endpoint transports media.
 import { WebSocketServer, WebSocket } from 'ws';
+import { createServer } from 'node:http';
 const server = new WebSocketServer({ port: 10001, host: '0.0.0.0', maxPayload: 96 * 1024 });
-const clients = new Map();
+const clients = new Map(); let blockedUntil = 0;
+const control = createServer((req, res) => {
+  if (req.method !== 'POST' || req.url !== '/disconnect') { res.writeHead(404).end(); return; }
+  blockedUntil = Date.now() + 35000;
+  for (const ws of clients.values()) ws.close(1012, 'Simulated broker outage');
+  res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ blockedMs: 35000 }));
+});
+control.listen(10002, '0.0.0.0');
 server.on('connection', (ws, req) => {
+  if (Date.now() < blockedUntil) { ws.close(1013, 'Simulated broker outage'); return; }
   const params = new URL(req.url, 'http://localhost').searchParams;
   const id = params.get('id');
   if (!id || params.get('key') !== 'peerjs' || !params.get('token')) { ws.close(); return; }
@@ -10,9 +19,9 @@ server.on('connection', (ws, req) => {
   clients.set(id, ws); ws.send(JSON.stringify({ type: 'OPEN' }));
   ws.on('message', (bytes, binary) => {
     if (binary) { ws.close(); return; }
-    const msg = JSON.parse(bytes.toString()); if (msg.type === 'HEARTBEAT') return;
+    let msg; try { msg = JSON.parse(bytes.toString()); } catch { ws.close(); return; }
+    if (msg.type === 'HEARTBEAT') return;
     if (!['OFFER', 'ANSWER', 'LEAVE', 'CANDIDATE'].includes(msg.type)) return;
-    // Match the hosted service: validate the data-offer envelope and preserve application metadata.
     if (['OFFER', 'ANSWER'].includes(msg.type)) {
       const p = msg.payload;
       if (!p || p.type !== 'data' || typeof p.connectionId !== 'string' || typeof p.label !== 'string' ||
@@ -24,6 +33,7 @@ server.on('connection', (ws, req) => {
     if (target?.readyState === WebSocket.OPEN) target.send(JSON.stringify({ ...msg, src: id }));
     else ws.send(JSON.stringify({ type: 'EXPIRE', src: msg.dst }));
   });
-  ws.on('error', () => {}); ws.on('close', () => { if (clients.get(id) === ws) clients.delete(id); });
+  ws.on('error', () => {});
+  ws.on('close', () => { if (clients.get(id) === ws) clients.delete(id); });
 });
-process.on('SIGTERM', () => { for (const ws of server.clients) ws.terminate(); server.close(() => process.exit(0)); });
+process.on('SIGTERM', () => { for (const ws of server.clients) ws.terminate(); control.close(); server.close(() => process.exit(0)); });

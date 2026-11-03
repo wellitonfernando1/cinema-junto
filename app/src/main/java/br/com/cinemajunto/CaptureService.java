@@ -202,7 +202,7 @@ public class CaptureService extends Service {
                 @Override public void onClosing(WebSocket ws, int code, String reason) { ws.close(code, reason); }
                 @Override public void onClosed(WebSocket ws, int code, String reason) { if (running) { status(reason); stopSelf(); } }
             };
-            socket = new DirectRoomSocket(this, true, intent.getStringExtra("endpoint"), room, directListener);
+            socket = new DirectRoomSocket(this, true, intent.getStringExtra("endpoint"), room, RoomPassword.device(this), directListener);
             status("Criando sala com sua palavra de 4 letras…");
             captureAudio();
         } catch (Exception e) { status("Não foi possível capturar a tela e o som: " + e.getClass().getSimpleName()); stopSelf(); }

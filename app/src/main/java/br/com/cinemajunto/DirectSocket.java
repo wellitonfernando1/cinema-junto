@@ -68,8 +68,9 @@ final class DirectSocket implements WebSocket {
                     public void onSignalingChange(PeerConnection.SignalingState state) {}
                     public void onIceConnectionChange(PeerConnection.IceConnectionState state) { worker.post(() -> {
                         if (closed) return;
+                        android.util.Log.i("CinemaConexao", (host ? "host" : "viewer") + " ICE " + state);
                         if (state == PeerConnection.IceConnectionState.FAILED) connectingTimeout.run();
-                        else if (state == PeerConnection.IceConnectionState.DISCONNECTED) { worker.removeCallbacks(lost); worker.postDelayed(lost, 15000); }
+                        else if (state == PeerConnection.IceConnectionState.DISCONNECTED) { worker.removeCallbacks(lost); worker.postDelayed(lost, 45000); }
                         else if (state == PeerConnection.IceConnectionState.CONNECTED || state == PeerConnection.IceConnectionState.COMPLETED) worker.removeCallbacks(lost);
                     }); }
                     public void onIceConnectionReceivingChange(boolean receiving) {}
@@ -263,7 +264,7 @@ final class DirectSocket implements WebSocket {
     }
     private synchronized boolean sendRaw(byte[] message, boolean binary) {
         DataChannel dc = channel;
-        if (closed || !opened || dc == null || message.length == 0 || message.length > MAX || dc.bufferedAmount() + message.length > MAX_QUEUE) return false;
+        if (closed || !opened || dc == null || message.length == 0 || message.length > MAX || dc.bufferedAmount() + message.length + (long)((message.length + CHUNK - 1) / CHUNK) * HEADER > MAX_QUEUE) return false;
         int id = ++outgoingId;
         for (int offset = 0; offset < message.length; offset += CHUNK) {
             int size = Math.min(CHUNK, message.length - offset);

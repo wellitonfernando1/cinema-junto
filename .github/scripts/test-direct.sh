@@ -7,6 +7,7 @@ server_pid=$!
 node server/cloud-broker-fixture.mjs > direct-results/cloud-broker.log 2>&1 &
 broker_pid=$!
 adb reverse tcp:10001 tcp:10001
+adb reverse tcp:10002 tcp:10002
 adb reverse tcp:10000 tcp:10000
 trap 'kill $server_pid $broker_pid || true; adb logcat -d > direct-results/logcat.txt; adb pull /sdcard/Android/data/$package/files/direct-test direct-results/screenshots || true' EXIT
 adb install "$(find test-apks -name app-debug.apk -print -quit)"

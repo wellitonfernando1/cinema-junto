@@ -451,10 +451,10 @@ public class MainActivity extends Activity {
         if (!CaptureService.active || word.isEmpty()) { show("Toque em Criar sala e aguarde a confirmação antes de convidar."); return; }
         String visible = word.toUpperCase(java.util.Locale.ROOT);
         new AlertDialog.Builder(this).setTitle("Convidar pessoa · " + visible)
-            .setMessage("Palavra da sala: " + visible + "\n\nEnvie a mesma palavra para as duas pessoas. No Cinema Direto 0.22, elas digitam a palavra e tocam em Entrar na sala.")
+            .setMessage("Palavra da sala: " + visible + "\n\nEnvie a mesma palavra para as duas pessoas. No Cinema Direto 0.23, elas digitam a palavra e tocam em Entrar na sala.")
             .setPositiveButton("Enviar convite", (d, w) -> {
                 Intent send = new Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT,
-                    "Vamos assistir juntos! No Cinema Direto 0.22, digite a palavra " + visible + " e toque em Entrar na sala. Até 3 pessoas na mesma sala.");
+                    "Vamos assistir juntos! No Cinema Direto 0.23, digite a palavra " + visible + " e toque em Entrar na sala. Até 3 pessoas na mesma sala.");
                 startActivity(Intent.createChooser(send, "Enviar convite"));
             }).setNeutralButton("Copiar palavra", (d, w) -> {
                 getSystemService(android.content.ClipboardManager.class).setPrimaryClip(ClipData.newPlainText("Palavra da sala", visible));
@@ -496,6 +496,15 @@ public class MainActivity extends Activity {
                         else if (msg.has("status")) {
                             String progress = msg.optString("status");
                             ui.post(() -> { if (watching && socket == ws && !viewerJoined) loading.setText(progress); });
+                            if (msg.optBoolean("reconnecting")) ui.post(() -> {
+                                if (watching && socket == ws) {
+                                    viewerJoined = false; microphone.setEnabled(false);
+                                    if (voice != null) { voice.close(); voice = null; }
+                                    startVoice();
+                                    if (playback != null) playback.resetStream();
+                                    loading.setText("Reconectando ao transmissor…"); loading.setVisibility(View.VISIBLE);
+                                }
+                            });
                             if (msg.optBoolean("joined")) {
                                 ui.post(() -> {
                                     if (watching && socket == ws) { viewerJoined = true; microphone.setEnabled(true); updateLayout(); }
@@ -518,7 +527,7 @@ public class MainActivity extends Activity {
                 @Override public void onClosing(WebSocket ws, int code, String reason) { ws.close(code, reason); }
                 @Override public void onClosed(WebSocket ws, int code, String reason) { runOnUiThread(() -> { if (socket == ws) { stopViewer(); show(reason); } }); }
             };
-            socket = new DirectRoomSocket(this, false, base, room, directListener);
+            socket = new DirectRoomSocket(this, false, base, room, RoomPassword.device(this), directListener);
         } catch (Exception e) { stopViewer(); show(e.getMessage()); }
     }
     void startPlayback() {

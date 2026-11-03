@@ -3,6 +3,8 @@ package br.com.cinemajunto;
 import android.content.Context;
 import android.os.Handler;
 import android.os.HandlerThread;
+import android.os.PowerManager;
+import android.os.SystemClock;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
@@ -14,6 +16,9 @@ import org.json.JSONObject;
 final class DirectRoomSocket implements WebSocket {
     private final Context context;
     private final boolean host;
+    private final String endpoint, room, device;
+    private PowerManager.WakeLock wakeLock;
+    private int signalGeneration;
     private final WebSocketListener listener;
     private final HandlerThread thread = new HandlerThread("CinemaSala");
     private final Handler worker;
@@ -25,33 +30,81 @@ final class DirectRoomSocket implements WebSocket {
     private ByteString config;
     private final Runnable stopTalk = () -> talk(false, talker);
     private final Runnable timeout = () -> fail("A conexão demorou. Confira a internet e tente novamente.");
-    private static class Peer { DirectSocket socket; boolean open, waiting = true, reset; }
+    private static class Peer { DirectSocket socket; boolean open, waiting = true, reset; long lastSeen; }
+    private final Runnable rejoin = this::startSignal;
+    private final Runnable heartbeat = new Runnable() {
+        public void run() {
+            if (closed) return;
+            long now = SystemClock.elapsedRealtime();
+            for (Map.Entry<String, Peer> entry : new java.util.ArrayList<>(peers.entrySet())) {
+                Peer peer = entry.getValue();
+                if (!peer.open) continue;
+                if (now - peer.lastSeen > 45000) { peerFailed(entry.getKey(), peer, "A conexão não respondeu."); continue; }
+                peer.socket.send("{\"type\":\"room-ping\"}");
+            }
+            worker.postDelayed(this, 5000);
+        }
+    };
 
     DirectRoomSocket(Context context, boolean host, String endpoint, String room, WebSocketListener listener) {
+        this(context, host, endpoint, room, java.util.UUID.randomUUID().toString(), listener);
+    }
+    DirectRoomSocket(Context context, boolean host, String endpoint, String room, String device, WebSocketListener listener) {
         this.context = context.getApplicationContext(); this.host = host; this.listener = listener;
+        this.endpoint = endpoint; this.room = room; this.device = device;
         thread.start(); worker = new Handler(thread.getLooper());
-        // Defer to the worker so callers can assign their socket before receiving callbacks.
         worker.post(() -> {
             if (closed) return;
-            worker.postDelayed(timeout, 45000);
-            WebSocketListener signalListener = new WebSocketListener() {
-                public void onOpen(WebSocket ws, Response response) {
-                    try { ws.send(new JSONObject().put("role", host ? "host" : "viewer").put("room", room).toString()); }
-                    catch (Exception e) { worker.post(() -> fail("Não foi possível abrir a sala.")); }
-                }
-                public void onMessage(WebSocket ws, String text) { worker.post(() -> signaling(text)); }
-                public void onFailure(WebSocket ws, Throwable t, Response response) { worker.post(() -> fail(t.getMessage() == null ? "Não foi possível localizar a sala. Confira a internet e tente novamente." : t.getMessage())); }
-                public void onClosing(WebSocket ws, int code, String reason) { ws.close(code, reason); }
-                public void onClosed(WebSocket ws, int code, String reason) { worker.post(() -> fail(reason.isEmpty() ? "Sala encerrada." : reason)); }
-            };
-            if (endpoint.contains("peerjs.com") || endpoint.contains("10001")) signal = new CloudSignal(client, host, room, endpoint, signalListener);
-            else signal = client.newWebSocket(new Request.Builder().url(endpoint.replaceFirst("^https", "wss") + "signal").build(), signalListener);
+            PowerManager power = (PowerManager)this.context.getSystemService(Context.POWER_SERVICE);
+            wakeLock = power.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "CinemaJunto:Conexao");
+            wakeLock.setReferenceCounted(false); wakeLock.acquire();
+            worker.postDelayed(timeout, 90000); worker.post(heartbeat); startSignal();
         });
+    }
+    private void startSignal() {
+        if (closed) return;
+        final int generation = ++signalGeneration;
+        if (signal != null) signal.cancel();
+        WebSocketListener signalListener = new WebSocketListener() {
+            public void onOpen(WebSocket ws, Response response) {
+                try { ws.send(new JSONObject().put("role", host ? "host" : "viewer").put("room", room).toString()); }
+                catch (Exception e) { worker.post(() -> { if (generation == signalGeneration) fail("Não foi possível abrir a sala."); }); }
+            }
+            public void onMessage(WebSocket ws, String text) { worker.post(() -> { if (generation == signalGeneration) signaling(text); }); }
+            public void onFailure(WebSocket ws, Throwable t, Response response) { worker.post(() -> {
+                if (generation == signalGeneration) fail(t.getMessage() == null ? "Não foi possível localizar a sala." : t.getMessage());
+            }); }
+            public void onClosing(WebSocket ws, int code, String reason) { ws.close(code, reason); }
+            public void onClosed(WebSocket ws, int code, String reason) { worker.post(() -> {
+                if (generation == signalGeneration) fail(reason.isEmpty() ? "Sala encerrada." : reason);
+            }); }
+        };
+        if (endpoint.contains("peerjs.com") || endpoint.contains("10001")) signal = new CloudSignal(client, host, room, endpoint, device, signalListener);
+        else signal = client.newWebSocket(new Request.Builder().url(endpoint.replaceFirst("^https", "wss") + "signal").build(), signalListener);
+    }
+    private void recoverViewer(String reason) {
+        if (closed || host) return;
+        ready = false; removePeer("host");
+        ++signalGeneration; if (signal != null) { signal.cancel(); signal = null; }
+        try { emit(new JSONObject().put("status", "Reconectando ao transmissor…").put("reconnecting", true).toString()); } catch (Exception ignored) {}
+        android.util.Log.i("CinemaSala", "Recuperando conexão: " + reason);
+        if (!worker.hasCallbacks(timeout)) worker.postDelayed(timeout, 90000);
+        worker.removeCallbacks(rejoin); worker.postDelayed(rejoin, 1000);
+    }
+    private void peerFailed(String id, Peer peer, String reason) {
+        if (closed || peers.get(id) != peer) return;
+        removePeer(id);
+        if (host) { signalMessage("drop-peer", id, null); status("Reconectando um convidado. A sala continua aberta.", false); }
+        else recoverViewer(reason);
     }
     private void signaling(String text) {
         if (closed) return;
         try {
             JSONObject msg = new JSONObject(text); String type = msg.optString("type");
+            if ("signal-offline".equals(type)) { status(msg.optString("message"), false); return; }
+            if ("signal-online".equals(type)) { if (ready) status("Serviço da sala reconectado. Transmissão ativa.", false); return; }
+            if ("host-unavailable".equals(type)) { if (!ready) status(msg.optString("message"), false); return; }
+            if ("peer-timeout".equals(type)) { if (!host && !ready && !peers.isEmpty()) recoverViewer("Prazo de entrada"); return; }
             if ("error".equals(type)) { fail(msg.optString("message")); return; }
             if ("joined".equals(type) && host) {
                 ready = true; worker.removeCallbacks(timeout);
@@ -69,7 +122,7 @@ final class DirectRoomSocket implements WebSocket {
                 if (peer != null) peer.socket.acceptCandidate(msg.getString("code"));
                 return;
             }
-            if ("joined".equals(type) && !host) status("Sala localizada. Conectando ao aparelho que transmite…", false);
+            if ("joined".equals(type) && !host) status("Aguardando resposta de quem transmite…", false);
             if ("signal".equals(type)) {
                 String id = host ? msg.getString("id") : "host";
                 if (host) { Peer peer = peers.get(id); if (peer != null) peer.socket.acceptAnswer(msg.getString("code")); }
@@ -83,25 +136,22 @@ final class DirectRoomSocket implements WebSocket {
         peer.socket = new DirectSocket(context, host, offer, new WebSocketListener() {
             public void onOpen(WebSocket ws, Response response) { worker.post(() -> {
                 if (closed || peers.get(id) != peer) return;
-                peer.open = true;
+                peer.open = true; peer.lastSeen = SystemClock.elapsedRealtime();
                 if (!host) {
                     ready = true; worker.removeCallbacks(timeout); signalMessage("connected", id, null);
                     listener.onOpen(DirectRoomSocket.this, response);
                     status("Conectado à sala · vídeo por conexão direta", true);
                     send("{\"type\":\"request-keyframe\"}");
                 } else {
+                    signalMessage("peer-connected", id, null);
                     emit("{\"type\":\"request-keyframe\"}");
-                    // A late arrival must mute its movie too if someone is speaking.
                     if (talker != null) deliverTalk(peer, id, true, talker);
                 }
             }); }
-            public void onMessage(WebSocket ws, String text) { worker.post(() -> receive(id, text)); }
-            public void onMessage(WebSocket ws, ByteString data) { worker.post(() -> receive(id, data)); }
+            public void onMessage(WebSocket ws, String text) { worker.post(() -> { if (peers.get(id) == peer) receive(id, text); }); }
+            public void onMessage(WebSocket ws, ByteString data) { worker.post(() -> { if (peers.get(id) == peer) receive(id, data); }); }
             public void onFailure(WebSocket ws, Throwable t, Response response) { worker.post(() -> {
-                if (closed || peers.get(id) != peer) return;
-                removePeer(id);
-                if (host) { signalMessage("drop-peer", id, null); status("Um convidado não conseguiu conectar. Ele pode tentar entrar de novo.", false); }
-                else fail(t.getMessage());
+                peerFailed(id, peer, t.getMessage());
             }); }
         }, new DirectSocket.Codes() {
             public void ready(String code) { worker.post(() -> signalMessage("signal", id, code)); }
@@ -128,6 +178,9 @@ final class DirectRoomSocket implements WebSocket {
         if (closed || !peers.containsKey(id)) return;
         try {
             JSONObject msg = new JSONObject(text); String type = msg.optString("type");
+            peers.get(id).lastSeen = SystemClock.elapsedRealtime();
+            if ("room-ping".equals(type)) { peers.get(id).socket.send("{\"type\":\"room-pong\"}"); return; }
+            if ("room-pong".equals(type)) return;
             if (!host) {
                 if ("chat".equals(type) || "talk".equals(type) || "media-reset".equals(type)) emit(text);
                 return;
@@ -139,6 +192,7 @@ final class DirectRoomSocket implements WebSocket {
     }
     private void receive(String id, ByteString data) {
         if (closed || data.size() < 2 || !peers.containsKey(id)) return;
+        peers.get(id).lastSeen = SystemClock.elapsedRealtime();
         if (!host) { listener.onMessage(this, data); return; }
         if (data.getByte(0) != 7 || !id.equals(talker)) return;
         listener.onMessage(this, data);
@@ -225,6 +279,7 @@ final class DirectRoomSocket implements WebSocket {
             worker.removeCallbacksAndMessages(null);
             for (Peer peer : peers.values()) peer.socket.cancel(); peers.clear();
             if (signal != null) signal.cancel();
+            if (wakeLock != null && wakeLock.isHeld()) wakeLock.release();
             client.dispatcher().executorService().shutdown(); thread.quitSafely();
         });
     }
