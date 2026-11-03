@@ -46,7 +46,7 @@ public class DirectRoomTest {
     }
     @Test public void connectedRoomSurvivesStartupDeadlineAndGuestPresenceExpiry() throws Exception {
         Context context = ApplicationProvider.getApplicationContext();
-        String key = RoomPassword.room(java.util.UUID.randomUUID().toString());
+        String key = RoomPassword.room(java.util.UUID.randomUUID().toString().replace("-", "").substring(0,16));
         Events h = new Events(), a = new Events(), b = new Events();
         DirectRoomSocket host = new DirectRoomSocket(context, true, "http://127.0.0.1:10001/", key, h);
         DirectRoomSocket one = null, two = null;
