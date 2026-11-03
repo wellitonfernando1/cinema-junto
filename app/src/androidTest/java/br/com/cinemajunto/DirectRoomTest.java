@@ -44,6 +44,24 @@ public class DirectRoomTest {
     @Test public void threePeersConnectThroughLivePublicSignaling() throws Exception {
         verifyThreePeers("https://0.peerjs.com/");
     }
+    @Test public void connectedRoomSurvivesStartupDeadlineAndGuestPresenceExpiry() throws Exception {
+        Context context = ApplicationProvider.getApplicationContext();
+        String key = RoomPassword.room(java.util.UUID.randomUUID().toString());
+        Events h = new Events(), a = new Events(), b = new Events();
+        DirectRoomSocket host = new DirectRoomSocket(context, true, "http://127.0.0.1:10001/", key, h);
+        DirectRoomSocket one = null, two = null;
+        try {
+            assertTrue(h.open.await(30, TimeUnit.SECONDS));
+            one = new DirectRoomSocket(context, false, "http://127.0.0.1:10001/", key, a);
+            two = new DirectRoomSocket(context, false, "http://127.0.0.1:10001/", key, b);
+            assertTrue(a.open.await(30, TimeUnit.SECONDS)); assertTrue(b.open.await(30, TimeUnit.SECONDS));
+            Thread.sleep(42000); // Cross both the 25s presence lease and the 40s startup deadline.
+            assertNull(h.failure); assertNull(a.failure); assertNull(b.failure);
+            assertTrue(host.send("{\"type\":\"chat\",\"text\":\"Sala continua ativa\"}"));
+            assertEquals("Sala continua ativa", a.type("chat").getString("text"));
+            assertEquals("Sala continua ativa", b.type("chat").getString("text"));
+        } finally { host.cancel(); if (one != null) one.cancel(); if (two != null) two.cancel(); }
+    }
     void verifyThreePeers(String endpoint) throws Exception {
         Context c = ApplicationProvider.getApplicationContext();
         String key = RoomPassword.room(java.util.UUID.randomUUID().toString().replace("-", "").substring(0,16));

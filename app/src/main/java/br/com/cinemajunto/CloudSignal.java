@@ -19,11 +19,12 @@ final class CloudSignal implements WebSocket {
     private final Map<String, Runnable> guests = new HashMap<>();
     private WebSocket socket;
     private volatile boolean closed;
-    private boolean opened;
+    private boolean opened, connected;
     private final Runnable heartbeat = new Runnable() {
         public void run() {
             if (closed) return;
             if (socket != null) socket.send("{\"type\":\"HEARTBEAT\"}");
+            if (!host && connected) relay(hostId, "presence", null);
             worker.postDelayed(this, 5000);
         }
     };
@@ -115,7 +116,10 @@ final class CloudSignal implements WebSocket {
                 }
                 if (!guests.containsKey(source)) return;
                 if ("leave".equals(action)) { remove(source); return; }
-                if ("connected".equals(action)) { worker.removeCallbacks(guests.get(source)); return; }
+                if ("connected".equals(action) || "presence".equals(action)) {
+                    Runnable expiry = guests.get(source); worker.removeCallbacks(expiry);
+                    worker.postDelayed(expiry, 25000); return;
+                }
             } else {
                 if (!hostId.equals(source)) return;
                 if ("full".equals(action)) { fail("Sala cheia: até 3 pessoas, incluindo quem transmite."); return; }
@@ -133,7 +137,7 @@ final class CloudSignal implements WebSocket {
             try {
                 JSONObject msg = new JSONObject(text); String type = msg.optString("type"), id = msg.optString("id");
                 if ("signal".equals(type) || "candidate".equals(type)) { if (!host || guests.containsKey(id)) relay(host ? id : hostId, type, msg.getString("code")); }
-                else if ("connected".equals(type) && !host) relay(hostId, "connected", null);
+                else if ("connected".equals(type) && !host) { connected = true; relay(hostId, "connected", null); }
                 else if ("drop-peer".equals(type) && host && guests.containsKey(id)) { relay(id, "timeout", null); remove(id); }
             } catch (Exception ignored) {}
         }); return true;
