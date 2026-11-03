@@ -55,12 +55,12 @@ export function attachSignaling(server) {
         count(room); return;
       }
       if (Date.now() - lastSignal >= 60000) { lastSignal = Date.now(); messages = 0; }
-      if (++messages > 30) { reject(ws, 'Excesso de sinalização.'); return; }
+      if (++messages > 300) { reject(ws, 'Excesso de sinalização.'); return; }
       if (msg.type === 'connected' && role === 'viewer') { clearTimeout(ws.pending); return; }
       if (msg.type === 'drop-peer' && role === 'host') { room.viewers.get(msg.id)?.close(1000, 'A conexão direta falhou. Entre novamente.'); return; }
-      if (msg.type !== 'signal' || typeof msg.code !== 'string' || !msg.code.startsWith('CJ19:') || msg.code.length > 65536) return;
-      if (role === 'host') send(room.viewers.get(msg.id), { type: 'signal', code: msg.code, id: msg.id });
-      else send(room.host, { type: 'signal', id, code: msg.code });
+      if (!['signal', 'candidate'].includes(msg.type) || typeof msg.code !== 'string' || !msg.code.startsWith('CJ19:') || msg.code.length > 65536) return;
+      if (role === 'host') send(room.viewers.get(msg.id), { type: msg.type, code: msg.code, id: msg.id });
+      else send(room.host, { type: msg.type, id, code: msg.code });
     });
     ws.on('close', () => {
       clearTimeout(deadline); clearTimeout(ws.pending);

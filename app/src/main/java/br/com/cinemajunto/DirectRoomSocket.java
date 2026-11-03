@@ -33,7 +33,7 @@ final class DirectRoomSocket implements WebSocket {
         // Defer to the worker so callers can assign their socket before receiving callbacks.
         worker.post(() -> {
             if (closed) return;
-            worker.postDelayed(timeout, 90000);
+            worker.postDelayed(timeout, 45000);
             WebSocketListener signalListener = new WebSocketListener() {
                 public void onOpen(WebSocket ws, Response response) {
                     try { ws.send(new JSONObject().put("role", host ? "host" : "viewer").put("room", room).toString()); }
@@ -64,6 +64,12 @@ final class DirectRoomSocket implements WebSocket {
                 if (host || ready) status("Participantes: " + msg.optInt("count") + "/3 · vídeo por conexão direta", false);
                 return;
             }
+            if ("candidate".equals(type)) {
+                Peer peer = peers.get(host ? msg.getString("id") : "host");
+                if (peer != null) peer.socket.acceptCandidate(msg.getString("code"));
+                return;
+            }
+            if ("joined".equals(type) && !host) status("Sala localizada. Conectando ao aparelho que transmite…", false);
             if ("signal".equals(type)) {
                 String id = host ? msg.getString("id") : "host";
                 if (host) { Peer peer = peers.get(id); if (peer != null) peer.socket.acceptAnswer(msg.getString("code")); }
@@ -97,7 +103,10 @@ final class DirectRoomSocket implements WebSocket {
                 if (host) { signalMessage("drop-peer", id, null); status("Um convidado não conseguiu conectar. Ele pode tentar entrar de novo.", false); }
                 else fail(t.getMessage());
             }); }
-        }, code -> worker.post(() -> signalMessage("signal", id, code)), true);
+        }, new DirectSocket.Codes() {
+            public void ready(String code) { worker.post(() -> signalMessage("signal", id, code)); }
+            public void candidate(String code) { worker.post(() -> signalMessage("candidate", id, code)); }
+        }, true);
     }
     private void signalMessage(String type, String id, String code) {
         if (closed || signal == null) return;

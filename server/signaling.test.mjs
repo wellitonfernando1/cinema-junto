@@ -32,6 +32,13 @@ test('três pessoas entram pela mesma sala, cada resposta volta somente ao anfit
   h.ws.send(JSON.stringify({ type: 'signal', id: aid, code: 'CJ19:offerA' })); assert.equal((await a.next('signal')).code, 'CJ19:offerA');
   h.ws.send(JSON.stringify({ type: 'signal', id: bid, code: 'CJ19:offerB' })); assert.equal((await b.next('signal')).code, 'CJ19:offerB');
   a.ws.send(JSON.stringify({ type: 'signal', id: bid, code: 'CJ19:answerA' })); const answer = await h.next('signal'); assert.equal(answer.id, aid);
+  // ICE must follow the same isolated route as SDP; a viewer cannot spoof another id.
+  for (let i = 0; i < 40; i++) {
+    a.ws.send(JSON.stringify({ type: 'candidate', id: bid, code: 'CJ19:ice' + i }));
+    const ice = await h.next('candidate'); assert.equal(ice.id, aid); assert.equal(ice.code, 'CJ19:ice' + i);
+  }
+  h.ws.send(JSON.stringify({ type: 'candidate', id: bid, code: 'CJ19:hostIceB' }));
+  assert.equal((await b.next('candidate')).code, 'CJ19:hostIceB');
   const closed = once(a.ws, 'close'); a.ws.close(); await closed; assert.equal((await h.next('peer-left')).id, aid);
   const c = await connect('viewer'); await c.next('joined');
   const bclosed = once(b.ws, 'close'), cclosed = once(c.ws, 'close'); h.ws.close(); await Promise.all([bclosed, cclosed]);

@@ -88,6 +88,42 @@ public class DirectTransportTest {
             assertNull(h.error.get()); assertNull(v.error.get());
         } finally { host.cancel(); if (viewer != null) viewer.cancel(); }
     }
+    // Strip all SDP candidates: this test can connect only if trickle ICE works,
+    // including candidates delivered before the host applies its answer.
+    private String withoutCandidates(String code, String type) throws Exception {
+        JSONObject data = DirectInvite.decode(code, type);
+        String sdp = data.getString("sdp").replaceAll("(?m)^a=candidate:.*\\r?\\n", "")
+            .replaceAll("(?m)^a=end-of-candidates\\r?\\n", "");
+        return DirectInvite.encode(data.getString("session"), type, sdp, data.getLong("expires"));
+    }
+    @Test public void trickleCandidatesBeforeAnswerConnectWithoutGatheringDelay() throws Exception {
+        Context context = ApplicationProvider.getApplicationContext();
+        BlockingQueue<String> offers = new LinkedBlockingQueue<>(), answers = new LinkedBlockingQueue<>();
+        BlockingQueue<String> hostIce = new LinkedBlockingQueue<>(), viewerIce = new LinkedBlockingQueue<>();
+        Events h = new Events("host"), v = new Events("viewer");
+        DirectSocket host = new DirectSocket(context, true, null, h, new DirectSocket.Codes() {
+            public void ready(String code) { offers.add(code); }
+            public void candidate(String code) { hostIce.add(code); }
+        }, true), viewer = null;
+        try {
+            String offer = offers.poll(10, TimeUnit.SECONDS); assertNotNull("Offer waited for ICE gathering", offer);
+            viewer = new DirectSocket(context, false, withoutCandidates(offer, "offer"), v, new DirectSocket.Codes() {
+                public void ready(String code) { answers.add(code); }
+                public void candidate(String code) { viewerIce.add(code); }
+            }, true);
+            String answer = answers.poll(10, TimeUnit.SECONDS); assertNotNull("Answer waited for ICE gathering", answer);
+            String candidate = viewerIce.poll(10, TimeUnit.SECONDS); assertNotNull("Missing viewer ICE", candidate);
+            host.acceptCandidate(candidate); // Must be queued until remote SDP succeeds.
+            candidate = hostIce.poll(10, TimeUnit.SECONDS); assertNotNull("Missing host ICE", candidate);
+            viewer.acceptCandidate(candidate);
+            host.acceptAnswer(withoutCandidates(answer, "answer"));
+            assertTrue("Host: " + h.error.get(), h.open.await(15, TimeUnit.SECONDS));
+            assertTrue("Viewer: " + v.error.get(), v.open.await(15, TimeUnit.SECONDS));
+            assertTrue(host.send(ByteString.of(new byte[]{6, 1, 2})));
+            assertEquals(ByteString.of(new byte[]{6, 1, 2}), v.binary.poll(5, TimeUnit.SECONDS));
+            assertNull(h.error.get()); assertNull(v.error.get());
+        } finally { host.cancel(); if (viewer != null) viewer.cancel(); }
+    }
     @Test public void rejectsInvalidExpiredAndWrongStepCodes() throws Exception {
         String session = java.util.UUID.randomUUID().toString();
         String code = DirectInvite.encode(session, "offer", "v=0\r\n", System.currentTimeMillis() + DirectInvite.VALID_MS);

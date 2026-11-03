@@ -5,7 +5,9 @@ import android.os.Handler;
 import android.os.HandlerThread;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
-import java.util.Collections;
+import java.util.Arrays;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
 import okhttp3.*;
 import okio.ByteString;
@@ -14,7 +16,7 @@ import org.webrtc.*;
 
 /** One-to-one DTLS/SCTP transport. No media relay and no automatic paid fallback. */
 final class DirectSocket implements WebSocket {
-    interface Codes { void ready(String code); }
+    interface Codes { void ready(String code); default void candidate(String code) {} }
     private static boolean initialized;
     private final boolean host;
     private final boolean roomMode;
@@ -30,9 +32,11 @@ final class DirectSocket implements WebSocket {
     private long expires;
     private boolean codeSent, answerApplied;
     private String talker;
+    private boolean remoteReady;
+    private final List<IceCandidate> localCandidates = new ArrayList<>(), remoteCandidates = new ArrayList<>();
     private final Runnable endTalk = () -> changeTalk(false, talker);
     private final Runnable lost = () -> fail("A conexão direta caiu. Crie um novo convite.");
-    private final Runnable connectingTimeout = () -> fail("Não foi possível conectar diretamente nesta rede. Esta versão não usa servidor de retransmissão.");
+    private final Runnable connectingTimeout = () -> fail("Não foi possível concluir a conexão direta entre os aparelhos. Teste outra rede Wi-Fi ou os dados móveis e entre novamente. Esta versão não retransmite o filme por servidor.");
     private final java.util.concurrent.atomic.AtomicLong pendingBytes = new java.util.concurrent.atomic.AtomicLong();
     private byte[] assembly;
     private int received, incomingId, outgoingId;
@@ -57,21 +61,25 @@ final class DirectSocket implements WebSocket {
                     }
                 }
                 factory = PeerConnectionFactory.builder().createPeerConnectionFactory();
-                PeerConnection.RTCConfiguration config = new PeerConnection.RTCConfiguration(Collections.singletonList(
-                    PeerConnection.IceServer.builder("stun:stun.l.google.com:19302").createIceServer()));
+                PeerConnection.RTCConfiguration config = new PeerConnection.RTCConfiguration(Arrays.asList(
+                    PeerConnection.IceServer.builder("stun:stun.l.google.com:19302").createIceServer(),
+                    PeerConnection.IceServer.builder("stun:stun1.l.google.com:19302").createIceServer()));
                 peer = factory.createPeerConnection(config, new PeerConnection.Observer() {
                     public void onSignalingChange(PeerConnection.SignalingState state) {}
                     public void onIceConnectionChange(PeerConnection.IceConnectionState state) { worker.post(() -> {
                         if (closed) return;
                         if (state == PeerConnection.IceConnectionState.FAILED) connectingTimeout.run();
-                        else if (state == PeerConnection.IceConnectionState.DISCONNECTED) worker.postDelayed(lost, 10000);
+                        else if (state == PeerConnection.IceConnectionState.DISCONNECTED) { worker.removeCallbacks(lost); worker.postDelayed(lost, 15000); }
                         else if (state == PeerConnection.IceConnectionState.CONNECTED || state == PeerConnection.IceConnectionState.COMPLETED) worker.removeCallbacks(lost);
                     }); }
                     public void onIceConnectionReceivingChange(boolean receiving) {}
                     public void onIceGatheringChange(PeerConnection.IceGatheringState state) {
                         if (state == PeerConnection.IceGatheringState.COMPLETE) worker.post(() -> publishCode());
                     }
-                    public void onIceCandidate(IceCandidate candidate) {}
+                    public void onIceCandidate(IceCandidate candidate) { worker.post(() -> {
+                        if (closed || !roomMode) return;
+                        if (codeSent) publishCandidate(candidate); else localCandidates.add(candidate);
+                    }); }
                     public void onIceCandidatesRemoved(IceCandidate[] candidates) {}
                     public void onAddStream(MediaStream stream) {}
                     public void onRemoveStream(MediaStream stream) {}
@@ -88,9 +96,10 @@ final class DirectSocket implements WebSocket {
                     JSONObject data = DirectInvite.decode(offer, "offer");
                     session = data.getString("session"); expires = data.getLong("expires");
                     peer.setRemoteDescription(new Sdp() {
-                        public void onSetSuccess() { worker.post(() -> { if (!closed) peer.createAnswer(createDescription(), new MediaConstraints()); }); }
+                        public void onSetSuccess() { worker.post(() -> { if (!closed) { remoteReady = true; drainCandidates(); peer.createAnswer(createDescription(), new MediaConstraints()); } }); }
                     }, new SessionDescription(SessionDescription.Type.OFFER, data.getString("sdp")));
                 }
+                if (roomMode) worker.postDelayed(connectingTimeout, 40000);
                 worker.postDelayed(() -> { if (!opened) fail("Convite expirado. Encerre e crie outro."); }, DirectInvite.VALID_MS);
             } catch (Exception e) { fail(e.getMessage()); }
         });
@@ -99,7 +108,7 @@ final class DirectSocket implements WebSocket {
         public void onCreateSuccess(SessionDescription description) { worker.post(() -> {
             if (closed) return;
             peer.setLocalDescription(new Sdp() {
-                public void onSetSuccess() { worker.postDelayed(() -> publishCode(), 12000); }
+                public void onSetSuccess() { if (roomMode) worker.post(() -> publishCode()); else worker.postDelayed(() -> publishCode(), 12000); }
             }, description);
         }); }
     }; }
@@ -108,6 +117,8 @@ final class DirectSocket implements WebSocket {
         try {
             String code = DirectInvite.encode(session, host ? "offer" : "answer", peer.getLocalDescription().description, expires);
             codeSent = true; codes.ready(code);
+            for (IceCandidate candidate : localCandidates) publishCandidate(candidate);
+            localCandidates.clear();
         } catch (Exception e) { fail("Não foi possível gerar o convite."); }
     }
     void acceptAnswer(String code) {
@@ -118,11 +129,37 @@ final class DirectSocket implements WebSocket {
                 if (!session.equals(data.getString("session"))) throw new IllegalArgumentException("A resposta pertence a outro convite.");
                 peer.setRemoteDescription(new Sdp() {
                     public void onSetSuccess() { worker.post(() -> {
-                        answerApplied = true; worker.postDelayed(connectingTimeout, 45000);
+                        answerApplied = true; remoteReady = true; drainCandidates();
+                        if (!opened && !roomMode) worker.postDelayed(connectingTimeout, 45000);
                     }); }
                 }, new SessionDescription(SessionDescription.Type.ANSWER, data.getString("sdp")));
             } catch (Exception e) { fail(e.getMessage()); }
         });
+    }
+    private void publishCandidate(IceCandidate candidate) {
+        if (closed || !roomMode) return;
+        try {
+            String json = new JSONObject().put("mid", candidate.sdpMid).put("line", candidate.sdpMLineIndex)
+                .put("candidate", candidate.sdp).toString();
+            codes.candidate(DirectInvite.encode(session, "ice", "v=0\r\n" + json, expires));
+        } catch (Exception e) { fail("Não foi possível enviar a rota de conexão."); }
+    }
+    void acceptCandidate(String code) {
+        worker.post(() -> {
+            if (closed || !roomMode) return;
+            try {
+                JSONObject data = DirectInvite.decode(code, "ice");
+                if (!session.equals(data.getString("session"))) return;
+                JSONObject value = new JSONObject(data.getString("sdp").substring(5));
+                IceCandidate candidate = new IceCandidate(value.optString("mid", null), value.getInt("line"), value.getString("candidate"));
+                if (remoteReady) peer.addIceCandidate(candidate);
+                else if (remoteCandidates.size() < 128) remoteCandidates.add(candidate);
+            } catch (Exception e) { fail("Rota de conexão inválida. Entre novamente."); }
+        });
+    }
+    private void drainCandidates() {
+        for (IceCandidate candidate : remoteCandidates) peer.addIceCandidate(candidate);
+        remoteCandidates.clear();
     }
     private void bind(DataChannel dc) {
         if (closed) { if (dc != null) dc.dispose(); return; }

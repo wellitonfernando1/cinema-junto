@@ -52,9 +52,9 @@ public class DirectRoomTest {
         try {
             assertTrue("Host: " + h.failure, h.open.await(30, TimeUnit.SECONDS));
             one = new DirectRoomSocket(c, false, endpoint, key, a);
-            assertTrue("First: " + a.failure, a.open.await(60, TimeUnit.SECONDS));
             two = new DirectRoomSocket(c, false, endpoint, key, b);
-            assertTrue("Second: " + b.failure, b.open.await(60, TimeUnit.SECONDS));
+            assertTrue("First: " + a.failure, a.open.await(30, TimeUnit.SECONDS));
+            assertTrue("Second: " + b.failure, b.open.await(30, TimeUnit.SECONDS));
             fourth = new DirectRoomSocket(c, false, endpoint, key, full);
             assertTrue(full.failed.await(15, TimeUnit.SECONDS)); assertTrue(full.failure.contains("Sala cheia"));
             ByteString config = ByteString.of(StreamPacket.pack(StreamPacket.AVC_CONFIG, 0, 0, new byte[]{1, 2}));
