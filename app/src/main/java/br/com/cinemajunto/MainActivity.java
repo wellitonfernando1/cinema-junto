@@ -27,17 +27,20 @@ import okio.ByteString;
 import org.json.JSONObject;
 
 public class MainActivity extends Activity {
-    EditText endpoint, invitation, chatInput;
-    TextView status, chatHistory, messageBanner, loading, roomWord;
+    EditText endpoint, invitation, nickname, chatInput;
+    TextView status, chatStatus, chatHistory, messageBanner, loading, roomWord;
     FilmView screen;
     ScrollView setupScroll, chatScroll;
     LinearLayout mainLayout, controls, viewerBar, chatPanel, emojiRow;
     FrameLayout root, videoPane;
-    Button chatButton, fullscreenButton, zoomButton;
+    Button chatButton, chatCloseButton, fullscreenButton, zoomButton;
     final ArrayDeque<String> chatLines = new ArrayDeque<>();
     final Handler ui = new Handler(Looper.getMainLooper());
     boolean fullscreen, unreadChat, imeVisible, keyboardSeen, chatOpen, destroyed;
     int bannerSequence;
+    long lastChatId;
+    String chatSession;
+    boolean chatOnly, roomOpened;
     volatile int playbackGeneration;
     String pendingEndpoint, pendingRoom, pendingPassword;
     boolean hostFlowPending;
@@ -53,7 +56,7 @@ public class MainActivity extends Activity {
     };
     final BroadcastReceiver messages = new BroadcastReceiver() {
         public void onReceive(Context c, Intent i) {
-            if (i.hasExtra("chat")) receiveChat(i.getStringExtra("from"), i.getStringExtra("chat"));
+            if (i.hasExtra("chat")) receiveChat(null, i.getStringExtra("name"), i.getBooleanExtra("own", false), i.getStringExtra("chat"), 0, false);
             else if (i.hasExtra("status")) show(i.getStringExtra("status"));
         }
     };
@@ -90,16 +93,21 @@ public class MainActivity extends Activity {
         invitation.setFilters(new InputFilter[]{new InputFilter.LengthFilter(4)});
         invitation.setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD | android.text.InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
         invitation.setContentDescription("Palavra de 4 letras"); readableInput(invitation); controls.addView(invitation);
-        button(controls, "Entrar na sala", () -> startViewer());
+        invitation.setText(getPreferences(0).getString("lastInvite", ""));
+        nickname = new EditText(this); nickname.setSingleLine(true); nickname.setHint("Seu nome no chat (opcional)");
+        nickname.setFilters(new InputFilter[]{new InputFilter.LengthFilter(24)});
+        nickname.setText(getPreferences(0).getString("chatName", "")); readableInput(nickname); controls.addView(nickname);
+        button(controls, "Entrar na sala", this::startViewer);
+        button(controls, "Entrar só no chat", () -> joinRoom(true));
         button(controls, "Chat de quem transmite", () -> openHostChat());
         button(controls, "Encerrar", () -> endSession());
         status = new TextView(this); status.setTextColor(Color.BLACK);
-        status.setText("Até 3 pessoas: você e mais duas. Quem transmite cria uma palavra de 4 letras e toca em Convidar pessoa. Os convidados digitam a mesma palavra e tocam em Entrar na sala."); controls.addView(status);
+        status.setText("Use a palavra de 4 letras do convite para assistir ou entrar só no chat."); controls.addView(status);
         TextView tip = new TextView(this);
         tip.setTextColor(Color.BLACK);
         tip.setText(CaptureService.supportsSingleAppSharing()
             ? "Se houver a opção ‘Um app’, escolha o app do filme para manter chat e teclado só no seu aparelho. Compartilhar a tela inteira também os envia."
-            : "As mensagens aparecem no alto do filme nos dois aparelhos. Neste Android, o chat e o teclado de quem transmite também podem aparecer na imagem compartilhada."); controls.addView(tip);
+            : "As mensagens aparecem no alto do filme para quem está assistindo. Neste Android, o chat e o teclado de quem transmite também podem aparecer na imagem compartilhada."); controls.addView(tip);
         videoPane = new FrameLayout(this); mainLayout.addView(videoPane, new LinearLayout.LayoutParams(-1, 0, 1));
         screen = new FilmView(this); screen.setContentDescription("Filme compartilhado");
         videoPane.addView(screen, new FrameLayout.LayoutParams(-1, -1));
@@ -152,7 +160,7 @@ public class MainActivity extends Activity {
     }
     int dp(int size) { return Math.round(size * getResources().getDisplayMetrics().density); }
     void readableInput(EditText input) { input.setTextColor(Color.BLACK); input.setHintTextColor(0xff666666); input.setBackgroundColor(Color.WHITE); }
-    void resetChatIdle() { ui.removeCallbacks(idleChat); if (chatOpen) ui.postDelayed(idleChat, 5000); }
+    void resetChatIdle() { ui.removeCallbacks(idleChat); if (chatOpen && !chatOnly) ui.postDelayed(idleChat, 5000); }
     @Override public boolean dispatchTouchEvent(MotionEvent event) {
         if (chatOpen && event.getActionMasked() == MotionEvent.ACTION_DOWN) resetChatIdle();
         return super.dispatchTouchEvent(event);
@@ -164,9 +172,12 @@ public class MainActivity extends Activity {
     void buildChatPanel() {
         chatPanel = new LinearLayout(this); chatPanel.setOrientation(LinearLayout.VERTICAL);
         chatPanel.setPadding(dp(6), 0, dp(6), 0); chatPanel.setBackgroundColor(0xff171717);
+        chatStatus = new TextView(this); chatStatus.setTextColor(Color.WHITE); chatStatus.setTextSize(16);
+        chatStatus.setPadding(dp(8), dp(12), dp(8), dp(8)); chatPanel.addView(chatStatus);
+        chatStatus.setVisibility(View.GONE);
         chatScroll = new ScrollView(this); chatHistory = new TextView(this);
         chatHistory.setTextColor(0xffffffff); chatHistory.setTextSize(14); chatHistory.setPadding(dp(8), dp(4), dp(8), dp(4));
-        chatHistory.setText("As mensagens aparecem no alto do filme."); chatScroll.addView(chatHistory);
+        chatHistory.setText("Nenhuma mensagem ainda."); chatScroll.addView(chatHistory);
         chatPanel.addView(chatScroll, new LinearLayout.LayoutParams(-1, dp(56)));
         LinearLayout inputRow = new LinearLayout(this); inputRow.setGravity(Gravity.CENTER_VERTICAL);
         chatInput = new EditText(this); chatInput.setSingleLine(true); chatInput.setHint("Mensagem");
@@ -183,8 +194,9 @@ public class MainActivity extends Activity {
         inputRow.addView(chatInput, new LinearLayout.LayoutParams(0, dp(48), 1));
         Button send = new Button(this); send.setText("Enviar"); send.setTextSize(12); send.setMinWidth(0); send.setMinimumWidth(0);
         send.setOnClickListener(v -> sendChat()); inputRow.addView(send, new LinearLayout.LayoutParams(dp(70), dp(44)));
-        Button close = new Button(this); close.setText("×"); close.setContentDescription("Fechar chat"); close.setMinWidth(0); close.setMinimumWidth(0);
-        close.setOnClickListener(v -> closeChat()); inputRow.addView(close, new LinearLayout.LayoutParams(dp(44), dp(44)));
+        chatCloseButton = new Button(this); chatCloseButton.setMinWidth(0); chatCloseButton.setMinimumWidth(0);
+        chatCloseButton.setOnClickListener(v -> { if (chatOnly) endSession(); else closeChat(); });
+        inputRow.addView(chatCloseButton, new LinearLayout.LayoutParams(dp(44), dp(44)));
         chatPanel.addView(inputRow);
         emojiRow = new LinearLayout(this);
         chatPanel.addView(emojiRow); mainLayout.addView(chatPanel, new LinearLayout.LayoutParams(-1, -2));
@@ -212,14 +224,21 @@ public class MainActivity extends Activity {
     void handleKeyboard(boolean visible) {
         imeVisible = visible;
         if (chatOpen && visible) keyboardSeen = true;
-        chatScroll.setVisibility(visible ? View.GONE : View.VISIBLE);
+        chatScroll.setVisibility(visible && !chatOnly ? View.GONE : View.VISIBLE);
         // Android's landscape keyboard can otherwise turn into a full-screen text editor.
         emojiRow.setVisibility(View.GONE);
-        if (chatOpen && keyboardSeen && !visible) root.post(() -> { if (chatOpen && !imeVisible) closeChat(); });
+        if (!chatOnly && chatOpen && keyboardSeen && !visible) root.post(() -> { if (!chatOnly && chatOpen && !imeVisible) closeChat(); });
     }
     void updateLayout() {
-        setupScroll.setVisibility(watching && viewerJoined ? View.GONE : View.VISIBLE);
-        videoPane.setVisibility(watching && viewerJoined ? View.VISIBLE : View.GONE);
+        boolean inRoom = watching && (roomOpened || viewerJoined || chatOnly);
+        setupScroll.setVisibility(inRoom ? View.GONE : View.VISIBLE);
+        videoPane.setVisibility(inRoom && !chatOnly ? View.VISIBLE : View.GONE);
+        chatStatus.setVisibility(chatOnly ? View.VISIBLE : View.GONE);
+        chatPanel.setLayoutParams(new LinearLayout.LayoutParams(-1, chatOnly ? 0 : -2, chatOnly ? 1 : 0));
+        chatScroll.setLayoutParams(new LinearLayout.LayoutParams(-1, chatOnly ? 0 : dp(56), chatOnly ? 1 : 0));
+        chatCloseButton.setText(chatOnly ? "Sair" : "×");
+        chatCloseButton.setContentDescription(chatOnly ? "Sair da sala" : "Fechar chat");
+        chatCloseButton.getLayoutParams().width = dp(chatOnly ? 60 : 44);
         fullscreenButton.setText(fullscreen ? "Voltar" : "Tela cheia");
         if (!watching && chatOpen) closeChat();
         root.requestLayout(); screen.invalidate();
@@ -307,13 +326,18 @@ public class MainActivity extends Activity {
         if (watching) revealControls();
     }
     void updateChatButtons() { chatButton.setText(unreadChat ? "Chat •" : "Chat"); }
-    void receiveChat(String from, String text) {
+    void receiveChat(WebSocket source, String name, boolean own, String text, long id, boolean history) {
         if (text == null || text.isEmpty()) return;
-        String line = (("host".equals(from) && CaptureService.active) || ("viewer".equals(from) && watching) ? "Você: " : "Amigo: ") + text;
+        String line = (own ? "Você" : name) + ": " + text;
         ui.post(() -> {
-            if (destroyed) return;
-            chatLines.addLast(line); while (chatLines.size() > 20) chatLines.removeFirst();
-            chatHistory.setText(String.join("\n", chatLines)); chatScroll.post(() -> chatScroll.fullScroll(View.FOCUS_DOWN));
+            if (destroyed || (source != null && socket != source) || (id > 0 && id <= lastChatId)) return;
+            if (id > 0) lastChatId = id;
+            boolean atBottom = !chatScroll.canScrollVertically(1);
+            chatLines.addLast(line);
+            if (chatLines.size() > DirectRoomSocket.CHAT_HISTORY_LIMIT) chatLines.removeFirst();
+            chatHistory.setText(String.join("\n", chatLines));
+            if (atBottom) chatScroll.post(() -> chatScroll.scrollTo(0, chatHistory.getBottom()));
+            if (chatOnly || history) return;
             if (!chatOpen) { unreadChat = true; updateChatButtons(); }
             messageBanner.setText(line); messageBanner.setVisibility(View.VISIBLE);
             int sequence = ++bannerSequence;
@@ -325,7 +349,7 @@ public class MainActivity extends Activity {
         String text = chatInput.getText().toString().trim(); if (text.isEmpty()) return;
         try {
             if (sendViewerText(new JSONObject().put("type", "chat").put("text", text).toString())) chatInput.setText("");
-            else show("Chat desconectado. Entre na sala novamente.");
+            else show("Aguardando conexão. Sua mensagem ainda está no campo de texto.");
         } catch (Exception e) { show("Não foi possível enviar a mensagem."); }
     }
     boolean sendViewerText(String text) {
@@ -337,11 +361,11 @@ public class MainActivity extends Activity {
         closeChat(); stopViewer(); stopService(new Intent(this, CaptureService.class)); updateLayout(); show("Encerrado.");
     }
     @Override public void onBackPressed() {
-        if (chatOpen) closeChat(); else if (fullscreen) exitFullscreen(); else super.onBackPressed();
+        if (chatOnly) endSession(); else if (chatOpen) closeChat(); else if (fullscreen) exitFullscreen(); else super.onBackPressed();
     }
     @Override public void onConfigurationChanged(Configuration config) {
         super.onConfigurationChanged(config); updateLayout(); root.requestApplyInsets();
-        if (chatOpen) { keyboardSeen = false; showChatKeyboard(); resetChatIdle(); }
+        if (chatOpen && !chatOnly) { keyboardSeen = false; showChatKeyboard(); resetChatIdle(); }
         if (watching && !chatOpen) dismissSetupKeyboard();
         if (fullscreen && !chatOpen) applyImmersive();
     }
@@ -349,7 +373,13 @@ public class MainActivity extends Activity {
         super.onWindowFocusChanged(focused); if (focused && fullscreen && !chatOpen) applyImmersive();
     }
 
-    void show(String s) { runOnUiThread(() -> status.setText(s == null ? "" : s)); }
+    void show(String s) {
+        runOnUiThread(() -> {
+            String text = s == null ? "" : s;
+            status.setText(text);
+            if (chatOnly) chatStatus.setText("Só chat · " + invitation.getText().toString().toUpperCase(java.util.Locale.ROOT) + "\n" + text);
+        });
+    }
     String validEndpoint(String input) {
         HttpUrl u = HttpUrl.parse(input.trim());
         if (u == null || !u.scheme().equals("https") || !u.username().isEmpty() || !u.password().isEmpty()) throw new IllegalArgumentException("Use o endereço HTTPS do servidor.");
@@ -362,7 +392,7 @@ public class MainActivity extends Activity {
         LinearLayout box = new LinearLayout(this); box.setOrientation(LinearLayout.VERTICAL);
         box.setPadding(dp(20), dp(8), dp(20), dp(8));
         TextView explanation = new TextView(this); explanation.setTextColor(Color.BLACK);
-        explanation.setText("Escolha uma palavra com exatamente 4 letras, como GATO. Até 3 pessoas podem entrar: você e mais duas.");
+        explanation.setText("Escolha uma palavra com exatamente 4 letras, como GATO.");
         box.addView(explanation);
         EditText word = new EditText(this); word.setSingleLine(true); readableInput(word);
         word.setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD | android.text.InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
@@ -444,17 +474,17 @@ public class MainActivity extends Activity {
         getPreferences(0).edit().putString("hostInvite", pendingPassword).apply();
         roomWord.setText("PALAVRA DA SALA: " + pendingPassword.toUpperCase(java.util.Locale.ROOT));
         invitation.setText("");
-        show("Criando sala… aguarde para convidar as duas pessoas.");
+        show("Criando sala… aguarde para enviar o convite.");
     }
     void share() {
         String word = getPreferences(0).getString("hostInvite", "");
         if (!CaptureService.active || word.isEmpty()) { show("Toque em Criar sala e aguarde a confirmação antes de convidar."); return; }
         String visible = word.toUpperCase(java.util.Locale.ROOT);
         new AlertDialog.Builder(this).setTitle("Convidar pessoa · " + visible)
-            .setMessage("Palavra da sala: " + visible + "\n\nEnvie a mesma palavra para as duas pessoas. No Cinema Direto 0.23, elas digitam a palavra e tocam em Entrar na sala.")
+            .setMessage("Palavra da sala: " + visible + "\n\nEnvie a mesma palavra aos convidados. No Cinema Direto 0.24, eles podem assistir ou entrar só no chat.")
             .setPositiveButton("Enviar convite", (d, w) -> {
                 Intent send = new Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT,
-                    "Vamos assistir juntos! No Cinema Direto 0.23, digite a palavra " + visible + " e toque em Entrar na sala. Até 3 pessoas na mesma sala.");
+                    "Vamos assistir juntos! No Cinema Direto 0.24, digite a palavra " + visible + " e escolha Entrar na sala ou Entrar só no chat.");
                 startActivity(Intent.createChooser(send, "Enviar convite"));
             }).setNeutralButton("Copiar palavra", (d, w) -> {
                 getSystemService(android.content.ClipboardManager.class).setPrimaryClip(ClipData.newPlainText("Palavra da sala", visible));
@@ -463,20 +493,33 @@ public class MainActivity extends Activity {
     }
     void dismissSetupKeyboard() {
         root.setFocusableInTouchMode(true); root.requestFocus();
-        invitation.clearFocus(); endpoint.clearFocus();
+        invitation.clearFocus(); nickname.clearFocus(); endpoint.clearFocus();
         ((InputMethodManager)getSystemService(INPUT_METHOD_SERVICE))
             .hideSoftInputFromWindow(root.getWindowToken(), 0);
         if (Build.VERSION.SDK_INT >= 30 && getWindow().getInsetsController() != null)
             getWindow().getInsetsController().hide(WindowInsets.Type.ime());
     }
-    void startViewer() {
+    void startViewer() { joinRoom(false); }
+
+    void joinRoom(boolean onlyChat) {
         try {
-            if (CaptureService.active || CaptureService.starting || hostFlowPending) { show("Encerre ou cancele sua transmissão antes de assistir."); return; }
+            if (CaptureService.active || CaptureService.starting || hostFlowPending) { show("Encerre ou cancele a transmissão neste aparelho para entrar como convidado."); return; }
             String value = RoomPassword.fourLetters(invitation.getText().toString());
             String base = validEndpoint(endpoint.getText().toString()), room = RoomPassword.room(value);
+            String name = nickname.getText().toString().trim();
+            getPreferences(0).edit().putString("lastInvite", value).putString("chatName", name).apply();
             dismissSetupKeyboard();
-            stopViewer(); watching = true; updateLayout();
-            startPlayback(); startVoice(); show("Entrando na sala com a palavra… aguarde a conexão direta.");
+            stopViewer(); watching = true; chatOnly = onlyChat;
+            if (onlyChat) {
+                chatOpen = true;
+                chatPanel.setVisibility(View.VISIBLE);
+                setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_PORTRAIT);
+            } else {
+                startPlayback();
+                startVoice();
+            }
+            updateLayout();
+            show("Entrando na sala…");
             WebSocketListener directListener = new WebSocketListener() {
 
                 @Override public void onOpen(WebSocket ws, Response response) {
@@ -490,32 +533,47 @@ public class MainActivity extends Activity {
                             String reason = msg.optString("message", "Não foi possível entrar na sala.");
                             ui.post(() -> { if (socket == ws) { stopViewer(); show(reason); } });
                         }
-                        else if ("chat".equals(msg.optString("type"))) receiveChat(msg.optString("from"), msg.optString("text"));
+                        else if ("chat-session".equals(msg.optString("type"))) {
+                            String session = msg.optString("session");
+                            ui.post(() -> {
+                                if (socket != ws || session.equals(chatSession)) return;
+                                chatSession = session;
+                                clearChatHistory();
+                            });
+                        }
+                        else if ("chat".equals(msg.optString("type")))
+                            receiveChat(ws, msg.optString("name"), msg.optBoolean("own"), msg.optString("text"),
+                                msg.optLong("id"), msg.optBoolean("history"));
                         else if ("talk".equals(msg.optString("type")) && voice != null) voice.onControl(msg);
                         else if ("media-reset".equals(msg.optString("type")) && playback != null) playback.resetStream();
                         else if (msg.has("status")) {
                             String progress = msg.optString("status");
-                            ui.post(() -> { if (watching && socket == ws && !viewerJoined) loading.setText(progress); });
-                            if (msg.optBoolean("reconnecting")) ui.post(() -> {
-                                if (watching && socket == ws) {
-                                    viewerJoined = false; microphone.setEnabled(false);
-                                    if (voice != null) { voice.close(); voice = null; }
-                                    startVoice();
-                                    if (playback != null) playback.resetStream();
-                                    loading.setText("Reconectando ao transmissor…"); loading.setVisibility(View.VISIBLE);
+                            ui.post(() -> {
+                                if (!watching || socket != ws) return;
+                                if (msg.optBoolean("reconnecting")) {
+                                    viewerJoined = false;
+                                    if (!onlyChat) {
+                                        microphone.setEnabled(false);
+                                        if (voice != null) { voice.close(); voice = null; }
+                                        startVoice();
+                                        if (playback != null) playback.resetStream();
+                                        loading.setText(progress);
+                                        loading.setVisibility(View.VISIBLE);
+                                    }
                                 }
+                                if (msg.optBoolean("joined")) {
+                                    viewerJoined = true;
+                                    roomOpened = true;
+                                    microphone.setEnabled(!onlyChat);
+                                    updateLayout();
+                                }
+                                show(progress);
                             });
-                            if (msg.optBoolean("joined")) {
-                                ui.post(() -> {
-                                    if (watching && socket == ws) { viewerJoined = true; microphone.setEnabled(true); updateLayout(); }
-                                });
-                            }
-                            show(msg.optString("status"));
                         }
                     } catch (Exception ignored) {}
                 }
                 @Override public void onMessage(WebSocket ws, ByteString message) {
-                    if (!watching || socket != ws || message.size() < 2) return;
+                    if (!watching || onlyChat || socket != ws || message.size() < 2) return;
                     if (message.getByte(0) == 7) { VoiceTalk talk = voice; if (talk != null) talk.onAudio(message.toByteArray()); return; }
                     if (message.getByte(0) == 1 || message.getByte(0) == 2) {
                         show("Os dois aparelhos precisam instalar a nova versão para usar o vídeo mais fluido."); return;
@@ -527,7 +585,7 @@ public class MainActivity extends Activity {
                 @Override public void onClosing(WebSocket ws, int code, String reason) { ws.close(code, reason); }
                 @Override public void onClosed(WebSocket ws, int code, String reason) { runOnUiThread(() -> { if (socket == ws) { stopViewer(); show(reason); } }); }
             };
-            socket = new DirectRoomSocket(this, false, base, room, RoomPassword.device(this), directListener);
+            socket = new DirectRoomSocket(this, false, base, room, RoomPassword.device(this), onlyChat, name, directListener);
         } catch (Exception e) { stopViewer(); show(e.getMessage()); }
     }
     void startPlayback() {
@@ -555,7 +613,21 @@ public class MainActivity extends Activity {
         if (loading != null) loading.setVisibility(View.GONE);
         if (screen != null) screen.clearFrame();
         if (chatOpen) closeChat();
+        if (chatOnly) setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED);
+        roomOpened = false; chatOnly = false;
+        chatSession = null;
+        clearChatHistory();
+        if (chatInput != null) chatInput.setText("");
         if (fullscreen) exitFullscreen(); else if (controls != null) updateLayout();
+    }
+    void clearChatHistory() {
+        lastChatId = 0; chatLines.clear(); unreadChat = false;
+        if (chatHistory != null) {
+            chatHistory.setText("Nenhuma mensagem ainda.");
+            messageBanner.setVisibility(View.GONE);
+            ++bannerSequence;
+            updateChatButtons();
+        }
     }
     @Override protected void onSaveInstanceState(Bundle state) {
         state.putString("pendingEndpoint", pendingEndpoint); state.putString("pendingRoom", pendingRoom);

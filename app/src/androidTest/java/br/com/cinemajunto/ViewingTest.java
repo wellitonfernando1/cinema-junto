@@ -113,7 +113,7 @@ public class ViewingTest {
     }
     @Test public void incomingMessageIsSmallAndDoesNotInterruptMovie() throws Exception {
         startFilm(); fullscreen(); int height = activity.screen.getHeight();
-        main(() -> activity.receiveChat("host", "Olá 😀"));
+        main(() -> activity.receiveChat(null, "Anfitrião", false, "Olá 😀", 0, false));
         until("Incoming message did not appear", () -> activity.messageBanner.getVisibility() == View.VISIBLE);
         assertTrue(activity.messageBanner.getText().toString().contains("Olá 😀"));
         assertTrue(activity.messageBanner.getHeight() < activity.dp(90));

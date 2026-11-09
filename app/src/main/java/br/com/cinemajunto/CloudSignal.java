@@ -12,8 +12,8 @@ import org.json.JSONObject;
 
 /** Discovery can reconnect independently of established media connections. */
 final class CloudSignal implements WebSocket {
-    private final boolean host;
-    private final String hostId, ownId, device, base, token = UUID.randomUUID().toString();
+    private final boolean host, chatOnly;
+    private final String hostId, ownId, device, base, name, token = UUID.randomUUID().toString();
     private final OkHttpClient client;
     private final WebSocketListener listener;
     private final HandlerThread thread = new HandlerThread("CinemaEncontro");
@@ -24,22 +24,22 @@ final class CloudSignal implements WebSocket {
     private volatile boolean closed;
     private boolean online, everOpened, connected;
     private int attempt;
-    private static final class Guest { String device; boolean active; Runnable expiry; }
+    private static final class Guest { String device; Runnable expiry; }
     private final Runnable retry = this::connect;
     private final Runnable heartbeat = new Runnable() {
         public void run() {
             if (closed || !online) return;
             if (!socket.send("{\"type\":\"HEARTBEAT\"}")) { disconnected(socket); return; }
+            if (!host && !connected) relay(hostId, "join", null);
             worker.postDelayed(this, 5000);
         }
     };
-    CloudSignal(OkHttpClient client, boolean host, String room, String base, WebSocketListener listener) {
-        this(client, host, room, base, UUID.randomUUID().toString(), listener);
-    }
-    CloudSignal(OkHttpClient client, boolean host, String room, String base, String device, WebSocketListener listener) {
+    CloudSignal(OkHttpClient client, boolean host, String room, String base, String device,
+                boolean chatOnly, String name, WebSocketListener listener) {
         this.client = client; this.host = host; this.device = device; this.base = base;
-        this.hostId = "cinema23-" + room;
-        this.ownId = host ? hostId : "cinema23-guest-" + UUID.randomUUID();
+        this.chatOnly = chatOnly; this.name = name;
+        this.hostId = "cinema24-" + room;
+        this.ownId = host ? hostId : "cinema24-guest-" + UUID.randomUUID();
         this.listener = listener;
         thread.start(); worker = new Handler(thread.getLooper()); worker.post(this::connect);
     }
@@ -69,14 +69,15 @@ final class CloudSignal implements WebSocket {
     private void relay(String destination, String action, String code) {
         if (closed) return;
         try {
-            JSONObject metadata = new JSONObject().put("cinema", 23).put("action", action).put("device", device);
+            JSONObject metadata = new JSONObject().put("cinema", 24).put("action", action).put("device", device);
+            if ("join".equals(action) || "resume".equals(action)) metadata.put("chatOnly", chatOnly).put("name", name);
             if (code != null) metadata.put("code", code);
             JSONObject sdp = new JSONObject().put("type", "offer").put("sdp", "v=0\r\n");
             if ("signal".equals(action)) {
                 JSONObject invite = DirectInvite.decode(code, host ? "offer" : "answer");
                 sdp.put("type", host ? "offer" : "answer").put("sdp", invite.getString("sdp"));
             }
-            JSONObject payload = new JSONObject().put("type", "data").put("connectionId", "dc_cinema23")
+            JSONObject payload = new JSONObject().put("type", "data").put("connectionId", "dc_cinema24")
                 .put("label", "cinema-direct-v1").put("serialization", "raw").put("reliable", true)
                 .put("sdp", sdp).put("metadata", metadata);
             if ("candidate".equals(action)) {
@@ -95,7 +96,7 @@ final class CloudSignal implements WebSocket {
     }
     private void count() {
         try {
-            event(new JSONObject().put("type", "participants").put("count", guests.size() + 1).put("limit", 3));
+            event(new JSONObject().put("type", "participants").put("count", guests.size() + 1));
             for (String id : guests.keySet()) relay(id, "count", Integer.toString(guests.size() + 1));
         } catch (Exception ignored) {}
     }
@@ -107,7 +108,7 @@ final class CloudSignal implements WebSocket {
     }
     private void activate(String id) {
         Guest guest = guests.get(id);
-        if (guest != null) { guest.active = true; worker.removeCallbacks(guest.expiry); }
+        if (guest != null) worker.removeCallbacks(guest.expiry);
     }
     private void receive(String text) {
         if (closed || text.length() > 96 * 1024) return;
@@ -121,7 +122,7 @@ final class CloudSignal implements WebSocket {
                     listener.onOpen(this, new Response.Builder().request(request()).protocol(Protocol.HTTP_1_1).code(101).message("Sinalização").build());
                     event(new JSONObject().put("type", "joined").put("role", host ? "host" : "viewer"));
                 }
-                if (host) count(); else relay(hostId, connected ? "resume" : "join", null);
+                if (host) count(); else if (connected) relay(hostId, "resume", null);
                 while (online && !outgoing.isEmpty()) {
                     if (!socket.send(outgoing.peek())) { disconnected(socket); break; }
                     outgoing.remove();
@@ -138,42 +139,42 @@ final class CloudSignal implements WebSocket {
             String source = msg.optString("src");
             if ("EXPIRE".equals(type) || "LEAVE".equals(type)) {
                 // Broker presence is not media presence. An active direct peer owns its slot.
-                if (host) { Guest g = guests.get(source); if (g != null && !g.active) remove(source); }
-                else if (hostId.equals(source) && !connected) event("host-unavailable", "Aguardando o aparelho que transmite…");
+                if (!host && hostId.equals(source) && !connected) event("host-unavailable", "Aguardando o aparelho que transmite…");
                 return;
             }
             if (!"OFFER".equals(type) && !"ANSWER".equals(type) && !"CANDIDATE".equals(type)) return;
             JSONObject envelope = msg.optJSONObject("payload");
             JSONObject payload = envelope == null ? null : envelope.optJSONObject("metadata");
-            if (payload == null || payload.optInt("cinema") != 23) return;
+            if (payload == null || payload.optInt("cinema") != 24) return;
             String action = payload.optString("action"), code = payload.optString("code");
             if (host) {
-                if (!source.matches("cinema23-guest-[a-f0-9-]{36}")) return;
+                if (!source.matches("cinema24-guest-[a-f0-9-]{36}")) return;
                 if ("join".equals(action) || "resume".equals(action)) {
                     String identity = payload.optString("device");
                     if (!identity.matches("[a-f0-9-]{36}")) return;
-                    if (guests.containsKey(source)) { count(); return; }
-                    // A returning installation replaces only its previous connection, even in a full room.
+                    if (guests.containsKey(source)) return;
+                    // After a brief broker outage, an established guest keeps its direct channel.
+                    if ("resume".equals(action)) { relay(source, "timeout", null); return; }
                     String previous = null;
                     for (Map.Entry<String, Guest> entry : guests.entrySet())
                         if (identity.equals(entry.getValue().device)) previous = entry.getKey();
                     if (previous != null) { relay(previous, "replaced", null); remove(previous); }
-                    if (guests.size() >= 2) { relay(source, "full", null); return; }
                     Guest guest = new Guest(); guest.device = identity;
                     guest.expiry = () -> { relay(source, "timeout", null); remove(source); };
                     guests.put(source, guest); worker.postDelayed(guest.expiry, 90000);
-                    event(new JSONObject().put("type", "peer-joined").put("id", source)); count(); return;
+                    event(new JSONObject().put("type", "peer-joined").put("id", source).put("device", identity)
+                        .put("chatOnly", payload.optBoolean("chatOnly")).put("name", payload.optString("name")));
+                    count(); return;
                 }
                 if (!guests.containsKey(source)) return;
                 if ("leave".equals(action)) { remove(source); return; }
                 if ("connected".equals(action)) { activate(source); return; }
             } else {
                 if (!hostId.equals(source)) return;
-                if ("full".equals(action)) { fail("Sala cheia: já existem dois aparelhos assistindo."); return; }
                 if ("replaced".equals(action)) { fail("Este aparelho entrou novamente. A conexão anterior foi encerrada."); return; }
                 if ("closed".equals(action)) { fail("Quem transmitia encerrou a sala."); return; }
                 if ("timeout".equals(action)) { event("peer-timeout", "Reconectando ao aparelho que transmite…"); return; }
-                if ("count".equals(action)) { event(new JSONObject().put("type", "participants").put("count", Integer.parseInt(code)).put("limit", 3)); return; }
+                if ("count".equals(action)) { event(new JSONObject().put("type", "participants").put("count", Integer.parseInt(code))); return; }
             }
             if (("signal".equals(action) || "candidate".equals(action)) && code.startsWith("CJ19:") && code.length() <= 65536)
                 event(new JSONObject().put("type", action).put("id", source).put("code", code));

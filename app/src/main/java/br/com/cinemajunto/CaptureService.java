@@ -62,10 +62,10 @@ public class CaptureService extends Service {
         public void onDisplayChanged(int id) { if (id == Display.DEFAULT_DISPLAY) resizeForDisplay(); }
     };
     void status(String text) { sendBroadcast(new Intent(getPackageName()+".STATUS").setPackage(getPackageName()).putExtra("status", text)); }
-    void chat(String from, String text) {
+    void chat(String name, boolean own, String text) {
         sendBroadcast(new Intent(getPackageName()+".STATUS").setPackage(getPackageName())
-            .putExtra("from", from).putExtra("chat", text));
-        main.post(() -> { if (running && overlay != null) overlay.receive(from, text); });
+            .putExtra("name", name).putExtra("own", own).putExtra("chat", text));
+        main.post(() -> { if (running && overlay != null) overlay.receive(name, own, text); });
     }
     boolean sendChat(String text) {
         if (!connected || socket == null || text == null || text.trim().isEmpty()) return false;
@@ -184,7 +184,7 @@ public class CaptureService extends Service {
                         if ("error".equals(msg.optString("type"))) {
                             status(msg.optString("message", "Não foi possível criar a sala.")); stopSelf();
                         }
-                        else if ("chat".equals(msg.optString("type"))) chat(msg.optString("from"), msg.optString("text"));
+                        else if ("chat".equals(msg.optString("type"))) chat(msg.optString("name"), msg.optBoolean("own"), msg.optString("text"));
                         else if ("talk".equals(msg.optString("type"))) { VoiceTalk talk = voice; if (talk != null) talk.onControl(msg); }
                         else if ("request-keyframe".equals(msg.optString("type"))) {
                             imageHandler.post(() -> { if (running) { configurationPending = true; requestSyncFrame(); } });

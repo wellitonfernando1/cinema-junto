@@ -10,7 +10,7 @@ export function attachSignaling(server) {
   };
   const reject = (ws, message) => { send(ws, { type: 'error', message }); ws.close(1008, message); };
   const count = room => {
-    const msg = { type: 'participants', count: room.viewers.size + 1, limit: 3 };
+    const msg = { type: 'participants', count: room.viewers.size + 1 };
     send(room.host, msg); for (const ws of room.viewers.values()) send(ws, msg);
   };
   server.on('upgrade', (req, socket, head) => {
@@ -39,19 +39,30 @@ export function attachSignaling(server) {
         if (role === 'host') {
           if (room) { reject(ws, 'Palavra em uso. Escolha outra.'); return; }
           if (rooms.size >= 50) { reject(ws, 'Servidor ocupado. Tente novamente.'); return; }
-          room = { key: msg.room, host: ws, viewers: new Map() };
+          room = { key: msg.room, host: ws, viewers: new Map(), devices: new Map() };
           room.timer = setTimeout(() => { for (const peer of [ws, ...room.viewers.values()]) peer.close(1000, 'Sala expirada.'); }, 2 * 60 * 60 * 1000); room.timer.unref();
           rooms.set(msg.room, room);
         } else {
           if (!room) { reject(ws, 'Palavra não encontrada. Confira com quem transmite.'); return; }
-          if (room.viewers.size >= 2) { reject(ws, 'Sala cheia: três pessoas já estão conectadas ou entrando.'); return; }
-          id = randomUUID(); room.viewers.set(id, ws);
-          // A stalled handshake must not reserve a place indefinitely.
+          const device = typeof msg.device === 'string' && /^[a-f0-9-]{36}$/.test(msg.device) ? msg.device : randomUUID();
+          const previous = room.devices.get(device);
+          if (previous) {
+            const old = room.viewers.get(previous);
+            room.viewers.delete(previous);
+            send(room.host, { type: 'peer-left', id: previous });
+            reject(old, 'Este aparelho entrou novamente. A conexão anterior foi encerrada.');
+          }
+          id = randomUUID();
+          ws.device = device;
+          room.devices.set(device, id);
+          room.viewers.set(id, ws);
+          // Release negotiation state when the direct channel never opens.
           ws.pending = setTimeout(() => ws.close(1000, 'A conexão demorou demais. Entre novamente.'), 90000); ws.pending.unref();
         }
         clearTimeout(deadline); joined = true;
         send(ws, { type: 'joined', role, id });
-        if (role === 'viewer') send(room.host, { type: 'peer-joined', id });
+        if (role === 'viewer') send(room.host, { type: 'peer-joined', id, device: ws.device,
+          chatOnly: msg.chatOnly === true, name: typeof msg.name === 'string' ? msg.name.slice(0, 24) : '' });
         count(room); return;
       }
       if (Date.now() - lastSignal >= 60000) { lastSignal = Date.now(); messages = 0; }
@@ -70,7 +81,7 @@ export function attachSignaling(server) {
         rooms.delete(room.key); clearTimeout(room.timer);
         for (const peer of room.viewers.values()) peer.close(1000, 'Quem transmitia encerrou a sala.');
       } else if (room.viewers.get(id) === ws) {
-        room.viewers.delete(id); send(room.host, { type: 'peer-left', id }); count(room);
+        room.viewers.delete(id); room.devices.delete(ws.device); send(room.host, { type: 'peer-left', id }); count(room);
       }
     });
   });

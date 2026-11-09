@@ -29,11 +29,14 @@ public class DirectRoomTest {
         public void onMessage(WebSocket ws, String text) { texts.add(text); }
         public void onMessage(WebSocket ws, ByteString data) { packets.add(data); }
         public void onFailure(WebSocket ws, Throwable t, Response r) { failure = t.getMessage(); failed.countDown(); }
-        JSONObject type(String type) throws Exception {
+        JSONObject type(String type) throws Exception { return matching(type, null); }
+        JSONObject matching(String type, String expectedText) throws Exception {
             long end = System.nanoTime() + TimeUnit.SECONDS.toNanos(15);
             while (System.nanoTime() < end) {
                 String text = texts.poll(1, TimeUnit.SECONDS);
-                if (text != null) { JSONObject data = new JSONObject(text); if (type.equals(data.optString("type"))) return data; }
+                if (text == null) continue;
+                JSONObject data = new JSONObject(text);
+                if (type.equals(data.optString("type")) && (expectedText == null || expectedText.equals(data.optString("text")))) return data;
             }
             fail("Missing " + type + ": " + failure); return null;
         }
@@ -87,7 +90,7 @@ public class DirectRoomTest {
         });
         assertTrue(closed.await(5, TimeUnit.SECONDS)); assertNull(error.get());
     }
-    @Test public void fullRoomAcceptsReturningDeviceAndRecoversChannelWithoutKickingOtherViewer() throws Exception {
+    @Test public void returningDeviceRecoversChannelWithoutKickingOtherViewer() throws Exception {
         Context c = ApplicationProvider.getApplicationContext();
         String key = RoomPassword.room(java.util.UUID.randomUUID().toString().replace("-", "").substring(0,16));
         String device = java.util.UUID.randomUUID().toString();
@@ -109,9 +112,10 @@ public class DirectRoomTest {
                 }
                 assertTrue("Did not recover: " + a.failure, reconnected);
                 assertNull(a.failure); assertNull(b.failure); assertNull(h.failure);
-                host.send("{\"type\":\"chat\",\"text\":\"Continuou\"}");
-                assertEquals("Continuou", a.type("chat").getString("text"));
-                assertEquals("Continuou", b.type("chat").getString("text"));
+                String message = "Voltou " + attempt;
+                assertTrue(host.send(new JSONObject().put("type", "chat").put("text", message).toString()));
+                assertEquals(message, a.matching("chat", message).getString("text"));
+                assertEquals(message, b.matching("chat", message).getString("text"));
             }
             // Leave through the app repeatedly; the same installation never consumes a second slot.
             for (int i = 0; i < 3; i++) {
@@ -155,10 +159,66 @@ public class DirectRoomTest {
             assertEquals("Sete minutos", b.type("chat").getString("text"));
         } finally { host.cancel(); if (one != null) one.cancel(); if (two != null) two.cancel(); }
     }
+    @Test public void chatOnlyReplaysNamedMessagesAndReconnectsWithoutMedia() throws Exception {
+        Context c = ApplicationProvider.getApplicationContext();
+        String endpoint = "http://127.0.0.1:10001/";
+        String key = RoomPassword.room(java.util.UUID.randomUUID().toString().replace("-", "").substring(0, 16));
+        String device = java.util.UUID.randomUUID().toString();
+        Events h = new Events(), v = new Events(), initialChat = new Events(), reopenedChat = new Events();
+        DirectRoomSocket host = new DirectRoomSocket(c, true, endpoint, key, h);
+        DirectRoomSocket viewer = null, chat = null;
+        try {
+            assertTrue(h.open.await(20, TimeUnit.SECONDS));
+            viewer = new DirectRoomSocket(c, false, endpoint, key, v);
+            assertTrue(v.open.await(30, TimeUnit.SECONDS));
+            assertTrue(host.send("{\"type\":\"chat\",\"text\":\"Boa sessão!\"}"));
+            assertEquals("Boa sessão!", v.type("chat").getString("text"));
+
+            chat = new DirectRoomSocket(c, false, endpoint, key, device, true, "Welliton", initialChat);
+            assertTrue(initialChat.open.await(30, TimeUnit.SECONDS));
+            JSONObject welcome = initialChat.type("chat");
+            assertTrue(welcome.getBoolean("history"));
+            assertEquals("Anfitrião", welcome.getString("name"));
+            assertEquals("Boa sessão!", welcome.getString("text"));
+
+            assertTrue(chat.send("{\"type\":\"chat\",\"text\":\"Estou no celular\"}"));
+            JSONObject message = v.type("chat");
+            assertEquals("Welliton", message.getString("name"));
+            assertFalse(message.getBoolean("own"));
+            assertTrue(initialChat.type("chat").getBoolean("own"));
+
+            ByteString config = ByteString.of(StreamPacket.pack(5, 0, 0, new byte[]{1, 2}));
+            ByteString frame = ByteString.of(StreamPacket.pack(6, 1000, 1, new byte[]{1, 2}));
+            host.send(config); host.send(frame);
+            ByteString received;
+            do { received = v.packets.poll(10, TimeUnit.SECONDS); assertNotNull(received); } while (received.getByte(0) == 5);
+            assertEquals(frame, received);
+            host.send("{\"type\":\"talk\",\"active\":true}");
+            assertTrue(v.type("talk").getBoolean("active"));
+            ByteString speech = ByteString.of(StreamPacket.pack(7, 1000, 0, new byte[]{0, 0}));
+            host.send(speech);
+            assertEquals(speech, v.packets.poll(10, TimeUnit.SECONDS));
+            assertNull(initialChat.packets.poll(300, TimeUnit.MILLISECONDS));
+
+            chat.cancel();
+            chat = new DirectRoomSocket(c, false, endpoint, key, device, true, "Welliton", reopenedChat);
+            assertTrue(reopenedChat.open.await(30, TimeUnit.SECONDS));
+            assertEquals(welcome.getLong("id"), reopenedChat.type("chat").getLong("id"));
+            JSONObject restored = reopenedChat.type("chat");
+            assertEquals(message.getLong("id"), restored.getLong("id"));
+            assertTrue(restored.getBoolean("own"));
+            assertTrue(restored.getBoolean("history"));
+
+            closeDirectChannel(chat);
+            assertEquals(welcome.getLong("id"), reopenedChat.type("chat").getLong("id"));
+            assertEquals(message.getLong("id"), reopenedChat.type("chat").getLong("id"));
+            assertNull(v.failure);
+        } finally { host.cancel(); if (viewer != null) viewer.cancel(); if (chat != null) chat.cancel(); }
+    }
     void verifyThreePeers(String endpoint) throws Exception {
         Context c = ApplicationProvider.getApplicationContext();
         String key = RoomPassword.room(java.util.UUID.randomUUID().toString().replace("-", "").substring(0,16));
-        Events h = new Events(), a = new Events(), b = new Events(), full = new Events();
+        Events h = new Events(), a = new Events(), b = new Events(), extra = new Events();
         DirectRoomSocket host = new DirectRoomSocket(c, true, endpoint, key, h), one = null, two = null, fourth = null;
         try {
             assertTrue("Host: " + h.failure, h.open.await(30, TimeUnit.SECONDS));
@@ -166,21 +226,24 @@ public class DirectRoomTest {
             two = new DirectRoomSocket(c, false, endpoint, key, b);
             assertTrue("First: " + a.failure, a.open.await(30, TimeUnit.SECONDS));
             assertTrue("Second: " + b.failure, b.open.await(30, TimeUnit.SECONDS));
-            fourth = new DirectRoomSocket(c, false, endpoint, key, full);
-            assertTrue(full.failed.await(15, TimeUnit.SECONDS)); assertTrue(full.failure.contains("Sala cheia"));
+            fourth = new DirectRoomSocket(c, false, endpoint, key, extra);
+            assertTrue("Third viewer: " + extra.failure, extra.open.await(30, TimeUnit.SECONDS));
             ByteString config = ByteString.of(StreamPacket.pack(StreamPacket.AVC_CONFIG, 0, 0, new byte[]{1, 2}));
             byte[] payload = new byte[400000];
             ByteString frame = ByteString.of(StreamPacket.pack(StreamPacket.AVC_FRAME, 1000, 1, payload));
             assertTrue(host.send(config)); assertTrue(host.send(frame));
-            for (Events e : new Events[]{a, b}) {
+            for (Events e : new Events[]{a, b, extra}) {
                 ByteString got; int n = 0;
                 do { got = e.packets.poll(20, TimeUnit.SECONDS); assertNotNull(got); } while (!frame.equals(got) && ++n < 5);
                 assertEquals(frame, got);
             }
             one.send("{\"type\":\"chat\",\"text\":\"Olá três!\"}");
-            assertEquals("viewer", h.type("chat").getString("from"));
-            assertEquals("viewer", a.type("chat").getString("from"));
-            assertEquals("host", b.type("chat").getString("from"));
+            JSONObject hostMessage = h.type("chat");
+            JSONObject ownMessage = a.type("chat");
+            assertFalse(hostMessage.getBoolean("own"));
+            assertTrue(ownMessage.getBoolean("own"));
+            assertFalse(b.type("chat").getBoolean("own"));
+            assertEquals(hostMessage.getString("name"), ownMessage.getString("name"));
             one.send("{\"type\":\"talk\",\"active\":true}");
             assertEquals("viewer", h.type("talk").getString("from"));
             assertEquals("viewer", a.type("talk").getString("from"));
@@ -191,7 +254,7 @@ public class DirectRoomTest {
             one.cancel(); one = null;
             assertFalse(h.type("talk").getBoolean("active")); assertFalse(b.type("talk").getBoolean("active"));
             host.send("{\"type\":\"chat\",\"text\":\"Continuou\"}");
-            assertEquals("Continuou", b.type("chat").getString("text"));
+            assertEquals("Continuou", b.matching("chat", "Continuou").getString("text"));
         } finally { host.cancel(); if (one != null) one.cancel(); if (two != null) two.cancel(); if (fourth != null) fourth.cancel(); }
     }
 }

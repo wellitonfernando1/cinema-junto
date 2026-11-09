@@ -79,9 +79,9 @@ final class HostChatOverlay {
         });
         try { windows.addView(bubble, bubbleParams); } catch (Exception e) { bubble = null; }
     }
-    void receive(String from, String text) {
+    void receive(String name, boolean own, String text) {
         if (closed) return;
-        String line = ("host".equals(from) ? "Você: " : "Amigo: ") + text;
+        String line = (own ? "Você" : name) + ": " + text;
         history.addLast(line); while (history.size() > 20) history.removeFirst();
         if (recent != null) recent.setText(line);
         show(); if (bubble != null && composer == null) bubble.setText("Chat •");

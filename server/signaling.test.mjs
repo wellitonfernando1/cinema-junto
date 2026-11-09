@@ -19,16 +19,21 @@ function inbox(ws) {
 }
 async function setup(t) {
   const relay = createRelay(); relay.server.listen(0, '127.0.0.1'); await once(relay.server, 'listening'); t.after(() => relay.close());
-  return async (role, room = key) => {
+  return async (role, room = key, options = {}) => {
     const ws = new WebSocket(`ws://127.0.0.1:${relay.server.address().port}/signal`); const next = inbox(ws); await once(ws, 'open');
-    ws.send(JSON.stringify({ role, room })); return { ws, next };
+    ws.send(JSON.stringify({ role, room, ...options })); return { ws, next };
   };
 }
-test('três pessoas entram pela mesma sala, cada resposta volta somente ao anfitrião e saída libera vaga', async t => {
+test('convidados entram pela mesma palavra e a sinalização é roteada para o aparelho certo', async t => {
   const connect = await setup(t); const h = await connect('host'); await h.next('joined');
   const a = await connect('viewer'); await a.next('joined'); const aid = (await h.next('peer-joined')).id;
   const b = await connect('viewer'); await b.next('joined'); const bid = (await h.next('peer-joined')).id;
-  const full = await connect('viewer'); assert.match((await full.next('error')).message, /Sala cheia/);
+  const extra = await connect('viewer', key, { chatOnly: true, name: 'Welliton' });
+  assert.equal((await extra.next('joined')).role, 'viewer');
+  const extraJoin = await h.next('peer-joined');
+  assert.equal(extraJoin.chatOnly, true); assert.equal(extraJoin.name, 'Welliton');
+  const d = await connect('viewer'); await d.next('joined'); await h.next('peer-joined');
+  const e = await connect('viewer'); await e.next('joined'); await h.next('peer-joined');
   h.ws.send(JSON.stringify({ type: 'signal', id: aid, code: 'CJ19:offerA' })); assert.equal((await a.next('signal')).code, 'CJ19:offerA');
   h.ws.send(JSON.stringify({ type: 'signal', id: bid, code: 'CJ19:offerB' })); assert.equal((await b.next('signal')).code, 'CJ19:offerB');
   a.ws.send(JSON.stringify({ type: 'signal', id: bid, code: 'CJ19:answerA' })); const answer = await h.next('signal'); assert.equal(answer.id, aid);
@@ -41,7 +46,8 @@ test('três pessoas entram pela mesma sala, cada resposta volta somente ao anfit
   assert.equal((await b.next('candidate')).code, 'CJ19:hostIceB');
   const closed = once(a.ws, 'close'); a.ws.close(); await closed; assert.equal((await h.next('peer-left')).id, aid);
   const c = await connect('viewer'); await c.next('joined');
-  const bclosed = once(b.ws, 'close'), cclosed = once(c.ws, 'close'); h.ws.close(); await Promise.all([bclosed, cclosed]);
+  const closedWithHost = [b, c, d, e, extra].map(peer => once(peer.ws, 'close'));
+  h.ws.close(); await Promise.all(closedWithHost);
 });
 test('senha errada, colisão, salas diferentes e mídia binária são recusados', async t => {
   const connect = await setup(t);
@@ -51,4 +57,20 @@ test('senha errada, colisão, salas diferentes e mídia binária são recusados'
   const other = await connect('host', 'b'.repeat(64)); await other.next('joined');
   const viewer = await connect('viewer'); await viewer.next('joined'); await h.next('peer-joined');
   viewer.ws.send(Buffer.from([6, 1, 2])); assert.match((await viewer.next('error')).message, /somente sinalização/);
+});
+
+test('reentrada substitui a conexão anterior do mesmo aparelho e mantém os outros convidados', async t => {
+  const connect = await setup(t);
+  const h = await connect('host'); await h.next('joined');
+  const device = '00000000-0000-4000-8000-000000000001';
+  const old = await connect('viewer', key, { device }); await old.next('joined');
+  const oldId = (await h.next('peer-joined')).id;
+  const other = await connect('viewer'); await other.next('joined');
+  const otherId = (await h.next('peer-joined')).id;
+  const returning = await connect('viewer', key, { device }); await returning.next('joined');
+  assert.equal((await h.next('peer-left')).id, oldId);
+  assert.equal((await h.next('peer-joined')).device, device);
+  assert.match((await old.next('error')).message, /entrou novamente/);
+  h.ws.send(JSON.stringify({ type: 'signal', id: otherId, code: 'CJ19:stillHere' }));
+  assert.equal((await other.next('signal')).code, 'CJ19:stillHere');
 });
