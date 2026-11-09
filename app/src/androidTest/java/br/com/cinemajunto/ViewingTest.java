@@ -127,7 +127,7 @@ public class ViewingTest {
         until("Host button did not attach", () -> overlay.bubble != null && overlay.bubble.isAttachedToWindow());
         until("Host button is not visible over the launcher", () -> device.hasObject(By.desc("Abrir chat flutuante")));
         Bitmap before = screenshot("host-before-message");
-        main(() -> overlay.receive("viewer", "Estou assistindo ❤️"));
+        main(() -> overlay.receive("Convidado", false, "Estou assistindo ❤️"));
         until("Message is not above the other app", () -> overlay.banner != null && overlay.banner.isAttachedToWindow());
         // Non-touchable overlay windows are omitted from the accessibility tree; verify their pixels.
         until("Host message has no visible bounds", () -> overlay.banner.getHeight() > 0);
