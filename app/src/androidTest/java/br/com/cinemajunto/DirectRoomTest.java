@@ -159,6 +159,21 @@ public class DirectRoomTest {
             assertEquals("Sete minutos", b.type("chat").getString("text"));
         } finally { host.cancel(); if (one != null) one.cancel(); if (two != null) two.cancel(); }
     }
+    @Test public void hostClosingRoomEndsChatInsteadOfRetrying() throws Exception {
+        Context c = ApplicationProvider.getApplicationContext();
+        String endpoint = "http://127.0.0.1:10001/";
+        String key = RoomPassword.room(java.util.UUID.randomUUID().toString().replace("-", "").substring(0, 16));
+        Events h = new Events(), g = new Events();
+        DirectRoomSocket host = new DirectRoomSocket(c, true, endpoint, key, h), guest = null;
+        try {
+            assertTrue(h.open.await(20, TimeUnit.SECONDS));
+            guest = new DirectRoomSocket(c, false, endpoint, key, g);
+            assertTrue(g.open.await(30, TimeUnit.SECONDS));
+            host.cancel();
+            assertTrue(g.failed.await(10, TimeUnit.SECONDS));
+            assertEquals("Quem transmitia encerrou a sala.", g.failure);
+        } finally { host.cancel(); if (guest != null) guest.cancel(); }
+    }
     @Test public void chatOnlyReplaysNamedMessagesAndReconnectsWithoutMedia() throws Exception {
         Context c = ApplicationProvider.getApplicationContext();
         String endpoint = "http://127.0.0.1:10001/";

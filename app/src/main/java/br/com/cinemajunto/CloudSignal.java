@@ -58,7 +58,7 @@ final class CloudSignal implements WebSocket {
     private void disconnected(WebSocket ws) {
         if (closed || ws != socket) return;
         socket = null; online = false; ws.cancel(); worker.removeCallbacks(heartbeat);
-        event("signal-offline", "Reconectando o serviço da sala. A transmissão continua.");
+        event("signal-offline", "Reconectando o serviço da sala…");
         worker.removeCallbacks(retry);
         worker.postDelayed(retry, Math.min(10000L, 1000L << Math.min(attempt++, 4)));
     }
@@ -198,7 +198,8 @@ final class CloudSignal implements WebSocket {
     @Override public long queueSize() { return socket == null ? 0 : socket.queueSize(); }
     private void fail(String message) {
         if (closed) return;
-        finish(); listener.onFailure(this, new java.io.IOException(message), null);
+        event("error", message);
+        finish();
     }
     private void finish() {
         if (closed) return;

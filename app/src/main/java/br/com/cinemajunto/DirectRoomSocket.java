@@ -27,7 +27,7 @@ final class DirectRoomSocket implements WebSocket {
     private final Map<String, Peer> peers = new HashMap<>();
     private WebSocket signal;
     private volatile boolean closed, ready;
-    private boolean joinedBefore;
+    private boolean joinedBefore, waitingToRejoin;
     private int reconnectAttempt, nextGuestNumber;
     static final int CHAT_HISTORY_LIMIT = 100;
     private final ArrayDeque<ChatMessage> chatHistory = new ArrayDeque<>();
@@ -88,6 +88,7 @@ final class DirectRoomSocket implements WebSocket {
     }
     private void startSignal() {
         if (closed) return;
+        waitingToRejoin = false;
         final int generation = ++signalGeneration;
         if (signal != null) signal.cancel();
         WebSocketListener signalListener = new WebSocketListener() {
@@ -114,9 +115,9 @@ final class DirectRoomSocket implements WebSocket {
         else signal = client.newWebSocket(new Request.Builder().url(endpoint.replaceFirst("^http", "ws") + "signal").build(), signalListener);
     }
     private void recoverViewer(String reason) {
-        if (closed || host) return;
+        if (closed || host || waitingToRejoin) return;
+        waitingToRejoin = true;
         ready = false; removePeer("host");
-        ++signalGeneration; if (signal != null) { signal.cancel(); signal = null; }
         try { emit(new JSONObject().put("status", "Reconectando ao transmissor…").put("reconnecting", true).toString()); } catch (Exception ignored) {}
         android.util.Log.i("CinemaSala", "Recuperando conexão: " + reason);
         // The initial invitation has a deadline. A room that has already opened keeps retrying.
@@ -133,16 +134,17 @@ final class DirectRoomSocket implements WebSocket {
         if (closed) return;
         try {
             JSONObject msg = new JSONObject(text); String type = msg.optString("type");
-            if ("signal-offline".equals(type)) { status(msg.optString("message"), false); return; }
-            if ("signal-online".equals(type)) { if (ready) status("Serviço da sala reconectado. Transmissão ativa.", false); return; }
-            if ("host-unavailable".equals(type)) { if (!ready) status(msg.optString("message"), false); return; }
-            if ("peer-timeout".equals(type)) { if (!host) recoverViewer("Conexão anterior expirou"); return; }
             if ("error".equals(type)) {
                 String message = msg.optString("message");
                 if (!host && joinedBefore && message.startsWith("Palavra não encontrada")) recoverViewer(message);
                 else fail(message);
                 return;
             }
+            if (waitingToRejoin) return;
+            if ("signal-offline".equals(type)) { status(msg.optString("message"), false); return; }
+            if ("signal-online".equals(type)) { if (ready) status("Serviço da sala reconectado.", false); return; }
+            if ("host-unavailable".equals(type)) { if (!ready) status(msg.optString("message"), false); return; }
+            if ("peer-timeout".equals(type)) { if (!host) recoverViewer("Conexão anterior expirou"); return; }
             if ("joined".equals(type) && host) {
                 ready = true; worker.removeCallbacks(timeout);
                 listener.onOpen(this, new Response.Builder().request(request()).protocol(Protocol.HTTP_1_1).code(101).message("Sala direta").build());
@@ -350,8 +352,8 @@ final class DirectRoomSocket implements WebSocket {
         if (closed) return; closed = true; ready = false;
         worker.post(() -> {
             worker.removeCallbacksAndMessages(null);
-            for (Peer peer : peers.values()) peer.socket.cancel(); peers.clear();
             if (signal != null) signal.cancel();
+            for (Peer peer : peers.values()) peer.socket.cancel(); peers.clear();
             if (wakeLock != null && wakeLock.isHeld()) wakeLock.release();
             client.dispatcher().executorService().shutdown(); thread.quitSafely();
         });
