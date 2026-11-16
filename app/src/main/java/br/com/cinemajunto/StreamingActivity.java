@@ -117,8 +117,8 @@ public class StreamingActivity extends Activity {
         } else {
             String value = invite.getText().toString().trim();
             String id = value;
-            if (value.startsWith("https://")) {
-                String link = value.split("\\s+")[0];
+            if (value.contains("https://")) {
+                String link = value.substring(value.indexOf("https://")).split("\\s+")[0];
                 id = Uri.parse(link).getQueryParameter("sala");
             }
             String pass = password.getText().toString().trim().toUpperCase(Locale.ROOT);
