@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="pt-BR">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Cinema Junto</title>
+<style>
+:root{color-scheme:dark;font:16px system-ui,sans-serif;background:#15151b;color:#fcf7ee}
+*{box-sizing:border-box}body{margin:0}main{width:min(100% - 24px,920px);margin:auto}
+h1{margin:14px 0;font-size:clamp(1.5rem,5vw,2.2rem)}
+form,.bar{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-block:10px}
+#entry{display:grid;max-width:500px;background:#242430;border-radius:12px;padding:16px;gap:16px}
+label input:not([type=checkbox]){display:block;width:100%;margin-top:4px}
+button,input{font:inherit;border-radius:8px;padding:8px 12px;min-height:44px;border:1px solid #565563}
+input[type=checkbox]{min-height:auto}button{background:#f7cd82;color:#21190d;cursor:pointer}
+button:disabled{opacity:.55}a{color:#f7cd82}video{width:100%;max-height:43dvh;display:block;background:#000;border-radius:10px}
+#seekLabel,#message{flex:1;min-width:120px}
+ol{list-style:none;overflow:auto;height:clamp(84px,25dvh,260px);margin:8px 0;padding:10px;background:#242430;border-radius:10px}
+li{overflow-wrap:anywhere;margin-bottom:8px}[hidden]{display:none!important}
+</style>
+<script defer src="https://cdn.jsdelivr.net/npm/hls.js@1.7.4/dist/hls.min.js"></script>
+<script defer src="/watch.js"></script>
+<main>
+<h1>Cinema Junto</h1>
+<output id="status" aria-live="polite"></output>
+<form id="entry">
+<label>Seu nome<input id="name" maxlength="30" autocomplete="nickname" required></label>
+<label id="sourceLabel">Link direto do vídeo<input id="source" type="url" maxlength="4096" placeholder="https://…/video.mp4" required></label>
+<label id="passwordLabel" hidden>Senha da sala<input id="password" type="password" maxlength="4" pattern="[A-Za-z]{4}" autocapitalize="characters"></label>
+<label id="modeLabel" hidden><input type="checkbox" id="chatOnly"> Entrar só no chat</label>
+<button id="enter">Criar sala</button>
+</form>
+<section id="room" hidden>
+<div class="bar"><span id="count"></span><button id="share">Compartilhar convite</button><button id="shareChat">Convite só para chat</button><a href="/">Sair</a></div>
+<section id="player">
+<video id="video" playsinline preload="metadata"></video>
+<div class="bar">
+<button id="activate">Ativar vídeo</button><button id="toggle" hidden>Reproduzir</button>
+<label id="seekLabel" hidden>Posição<input id="seek" type="range" min="0" max="1" value="0" step="0.1" disabled></label>
+<output id="time"></output>
+</div>
+<output id="videoStatus"></output>
+</section>
+<section aria-label="Chat">
+<ol id="history" aria-live="polite"></ol>
+<form id="chat"><input id="message" aria-label="Mensagem" placeholder="Escreva uma mensagem" maxlength="500" required><button>Enviar</button></form>
+</section>
+</section>
+</main>
+</html>
