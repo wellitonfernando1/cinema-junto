@@ -6,8 +6,8 @@ android {
     namespace 'br.com.cinemajunto'
     compileSdk 35
     defaultConfig {
-        applicationId "br.com.cinemajunto.teste${trial.toLowerCase()}"
-        manifestPlaceholders = [appLabel: "Cinema ${trial} 0.17"]
+        applicationId "br.com.cinemajunto.streamingteste"
+        manifestPlaceholders = [appLabel: "Cinema Streamings Teste"]
         buildConfigField 'String', 'TRIAL', "\"${trial}\""
         buildConfigField 'int', 'CAPTURE_FPS', trial == 'A' ? '60' : '30'
         buildConfigField 'int', 'CAPTURE_EDGE', '1920'
@@ -15,7 +15,7 @@ android {
         minSdk 29
         targetSdk 35
         testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
-        versionCode 17
+        versionCode 18
         versionName "0.17-${trial}"
     }
     compileOptions {
