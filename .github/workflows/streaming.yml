@@ -4,7 +4,7 @@ on:
     branches: [android-streaming]
   workflow_dispatch:
 permissions:
-  contents: read
+  contents: write
 jobs:
   apk:
     runs-on: ubuntu-latest
@@ -25,3 +25,9 @@ jobs:
           name: Cinema-Streamings-Teste
           path: app/build/outputs/apk/debug/app-debug.apk
           retention-days: 14
+      - name: Publicar APK de teste
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp app/build/outputs/apk/debug/app-debug.apk Cinema-Junto-Streamings.apk
+          gh release create "streaming-${{ github.run_number }}" Cinema-Junto-Streamings.apk --target "${{ github.sha }}" --prerelease --title "Cinema Junto Streamings - teste ${{ github.run_number }}" --notes "APK experimental com salas, chat e controle de players via MediaSession. Compatibilidade com os streamings depende de teste em aparelhos reais."
