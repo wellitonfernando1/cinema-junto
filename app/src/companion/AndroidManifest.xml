@@ -12,7 +12,7 @@
             <intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent-filter>
         </activity>
         <activity android:name=".SplitChatActivity" android:exported="false"
-            android:resizeableActivity="true" android:taskAffinity="br.com.cinemajunto.conversa.chat"
+            android:resizeableActivity="true" android:taskAffinity="br.com.cinemajunto.chatfilme.chat"
             android:excludeFromRecents="true" android:windowSoftInputMode="adjustResize"
             android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden">
             <layout android:minWidth="180dp" android:minHeight="120dp"/>
