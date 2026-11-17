@@ -4,4 +4,5 @@
     android:packageNames="com.android.launcher3,com.android.systemui,com.google.android.apps.nexuslauncher,com.sec.android.app.launcher"
     android:accessibilityFlags="flagReportViewIds|flagRetrieveInteractiveWindows"
     android:canRetrieveWindowContent="true"
+    android:canPerformGestures="true"
     android:notificationTimeout="100" />
