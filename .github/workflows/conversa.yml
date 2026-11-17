@@ -1,7 +1,7 @@
 name: Cinema Conversa APK
 on:
   push:
-    branches: [conversa-independente]
+    branches: [conversa-independente, fix/chat-split-0.2]
   workflow_dispatch:
 permissions:
   contents: read
@@ -59,9 +59,9 @@ jobs:
           script: |
             adb install -g apks/debug/app-debug.apk
             adb install -g apks/androidTest/debug/app-debug-androidTest.apk
-            adb shell am instrument -w -r -e class br.com.cinemajunto.CompanionTest br.com.cinemajunto.conversa.test/androidx.test.runner.AndroidJUnitRunner > test-result.txt
+            adb shell am instrument -w -r -e class br.com.cinemajunto.CompanionTest,br.com.cinemajunto.SplitChatTest br.com.cinemajunto.conversa.test/androidx.test.runner.AndroidJUnitRunner > test-result.txt
             cat test-result.txt
-            grep -q 'OK (3 tests)' test-result.txt
+            grep -q 'OK (5 tests)' test-result.txt
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -78,9 +78,9 @@ jobs:
         with:
           name: conversa-apks
           path: apks
-      - run: cp apks/debug/app-debug.apk Cinema-Conversa-0.1.apk
+      - run: cp apks/debug/app-debug.apk Chat-Filme-0.2.apk
       - name: Publish experimental APK
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "conversa-0.1-${{ github.run_number }}" Cinema-Conversa-0.1.apk --target "${{ github.sha }}" --prerelease --title "Cinema Conversa 0.1 · experimental" --notes "Chat independente e microfone por toque. Instalação e testes básicos em emuladores Android 10 e 15. Compatibilidade com streamings e conversa entre aparelhos reais ainda não validada. Histórico local das últimas 200 mensagens recebidas por sala. Servidor existente: até cinco aparelhos, sala de duas horas, voz de 30 segundos por turno."
+          gh release create "chat-filme-0.2-${{ github.run_number }}" Chat-Filme-0.2.apk --target "${{ github.sha }}" --prerelease --title "Chat Filme 0.2 · tela dividida em teste" --notes "Chat em tarefa separada, divisão pelo Android, solicitação de orientação vertical e retorno após 3 segundos sem interação. Rascunho preservado. Testes de divisão e temporizador em emuladores Android 10 e 15. Exige sobreposição e ativação da acessibilidade para os controles de Recentes. Reprodução contínua e compatibilidade com streamings reais ainda não validadas."
