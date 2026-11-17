@@ -40,6 +40,7 @@ public class SplitScreenService extends AccessibilityService {
             String pkg=String.valueOf(root.getPackageName());
             if(Arrays.asList(getServiceInfo().packageNames).contains(pkg)){
                 diagnostic=describe(root,0);
+                if(performSplitShortcut(root)){complete(true);return;}
                 AccessibilityNodeInfo split=findSplit(root);
                 if(split!=null && click(split)){complete(true);return;}
                 if(!openedIcon){
@@ -52,9 +53,24 @@ public class SplitScreenService extends AccessibilityService {
     }};
     String describe(AccessibilityNodeInfo n,int depth){
         if(depth>8)return "";
-        StringBuilder b=new StringBuilder("\n"+n.getViewIdResourceName()+" text="+n.getText()+" desc="+n.getContentDescription()+" click="+n.isClickable());
+        StringBuilder b=new StringBuilder("\n"+n.getViewIdResourceName()+" text="+n.getText()+" desc="+n.getContentDescription()+" click="+n.isClickable()+" actions="+n.getActionList());
         for(int i=0;i<n.getChildCount() && b.length()<7000;i++){AccessibilityNodeInfo c=n.getChild(i);if(c!=null)b.append(describe(c,depth+1));}
         return b.toString();
+    }
+    boolean isSplitLabel(String value){
+        String s=value.toLowerCase(Locale.ROOT);
+        return s.contains("split screen") || s.contains("split top") || s.contains("split-screen") || s.contains("tela dividida") || s.equals("dividir");
+    }
+    boolean performSplitShortcut(AccessibilityNodeInfo n){
+        String desc=String.valueOf(n.getContentDescription()).toLowerCase(Locale.ROOT);
+        String id=n.getViewIdResourceName();
+        if(id!=null && id.endsWith("/task") && desc.contains(movieLabel.toLowerCase(Locale.ROOT))){
+            for(AccessibilityNodeInfo.AccessibilityAction action:n.getActionList()){
+                if(action.getLabel()!=null && isSplitLabel(action.getLabel().toString()))return n.performAction(action.getId());
+            }
+        }
+        for(int i=0;i<n.getChildCount();i++){AccessibilityNodeInfo c=n.getChild(i);if(c!=null && performSplitShortcut(c))return true;}
+        return false;
     }
     AccessibilityNodeInfo findSplit(AccessibilityNodeInfo n){
         String value=(String.valueOf(n.getText())+" "+String.valueOf(n.getContentDescription())).toLowerCase(Locale.ROOT);
