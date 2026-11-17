@@ -24,6 +24,16 @@ public class SplitScreenService extends AccessibilityService {
         info.packageNames=new String[]{home,"com.android.systemui","com.android.launcher3","com.google.android.apps.nexuslauncher","com.sec.android.app.launcher"};
         setServiceInfo(info);
     }
+    int foregroundWindowOrientation(){
+        for(AccessibilityWindowInfo window:getWindows()){
+            if(window.getType()==AccessibilityWindowInfo.TYPE_APPLICATION && (window.isFocused() || window.isActive())){
+                android.graphics.Rect bounds=new android.graphics.Rect();window.getBoundsInScreen(bounds);
+                if(bounds.width()>0 && bounds.height()>0)return bounds.width()>bounds.height()
+                    ?android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE:android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT;
+            }
+        }
+        return android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED;
+    }
     void splitForegroundMovie(String label, Runnable ready, Runnable failed) {
         cancel(); success=ready; failure=failed; movieLabel=label; active=true; attempts=0; openedIcon=false;selectingChat=false;
         if(Build.VERSION.SDK_INT<=30 && performGlobalAction(GLOBAL_ACTION_TOGGLE_SPLIT_SCREEN)) {
@@ -58,7 +68,13 @@ public class SplitScreenService extends AccessibilityService {
     }};
     AccessibilityNodeInfo findChatTask(AccessibilityNodeInfo n){
         String id=n.getViewIdResourceName();String desc=String.valueOf(n.getContentDescription());
-        if(id!=null && id.endsWith("/task") && desc.contains("Chat Filme · chat"))return n;
+        if(desc.contains("Chat Filme · chat")){
+            for(AccessibilityNodeInfo candidate=n;candidate!=null;candidate=candidate.getParent()){
+                android.graphics.Rect bounds=new android.graphics.Rect();candidate.getBoundsInScreen(bounds);
+                int minimum=Math.round(80*getResources().getDisplayMetrics().density);
+                if(candidate.isClickable() && bounds.width()>minimum && bounds.height()>minimum)return candidate;
+            }
+        }
         for(int i=0;i<n.getChildCount();i++){AccessibilityNodeInfo c=n.getChild(i);if(c!=null){AccessibilityNodeInfo found=findChatTask(c);if(found!=null)return found;}}
         return null;
     }
@@ -75,7 +91,7 @@ public class SplitScreenService extends AccessibilityService {
     boolean performSplitShortcut(AccessibilityNodeInfo n){
         String desc=String.valueOf(n.getContentDescription()).toLowerCase(Locale.ROOT);
         String id=n.getViewIdResourceName();
-        if(id!=null && id.endsWith("/task") && desc.contains(movieLabel.toLowerCase(Locale.ROOT))){
+        if(desc.contains(movieLabel.toLowerCase(Locale.ROOT))){
             for(AccessibilityNodeInfo.AccessibilityAction action:n.getActionList()){
                 if(action.getLabel()!=null && isSplitLabel(action.getLabel().toString()))return n.performAction(action.getId());
             }
@@ -94,7 +110,7 @@ public class SplitScreenService extends AccessibilityService {
         String desc=String.valueOf(n.getContentDescription()).toLowerCase(Locale.ROOT);
         String label=movieLabel.toLowerCase(Locale.ROOT);
         // Require the chosen movie app's label. Never click an arbitrary Recents card.
-        boolean icon=id!=null && (id.endsWith("/icon") || id.endsWith("/task_icon") || id.endsWith("/icon_view"));
+        boolean icon=id!=null && (id.endsWith("/icon") || id.endsWith("/task_icon") || id.endsWith("/icon_view") || id.endsWith("/app_icon"));
         if(desc.contains(label) && (icon || desc.contains("app icon") || desc.contains("ícone")))return n;
         for(int i=0;i<n.getChildCount();i++){AccessibilityNodeInfo c=n.getChild(i);if(c!=null){AccessibilityNodeInfo found=findMovieIcon(c);if(found!=null)return found;}}
         return null;
