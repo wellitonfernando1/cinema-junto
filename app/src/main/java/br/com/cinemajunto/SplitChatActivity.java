@@ -54,7 +54,7 @@ public class SplitChatActivity extends Activity {
         input.setImeOptions(android.view.inputmethod.EditorInfo.IME_ACTION_SEND);
         row.addView(input,new LinearLayout.LayoutParams(0,-2,1));
         Button send=new Button(this);send.setText("Enviar");send.setOnClickListener(v->send());row.addView(send);
-        Button close=new Button(this);close.setText("Voltar ao filme");close.setOnClickListener(v->returnToMovie());root.addView(close);
+        Button close=new Button(this);close.setText("×");close.setContentDescription("Voltar ao filme");close.setMinWidth(0);close.setMinimumWidth(0);close.setOnClickListener(v->returnToMovie());row.addView(close,new LinearLayout.LayoutParams(Math.round(40*getResources().getDisplayMetrics().density),-2));
         input.addTextChangedListener(new TextWatcher(){
             public void beforeTextChanged(CharSequence v,int start,int count,int after){}
             public void onTextChanged(CharSequence v,int start,int before,int count){s.draft=v.toString();if(active)idle.touch();}
