@@ -13,7 +13,7 @@
         </activity>
         <activity android:name=".SplitChatActivity" android:exported="false"
             android:resizeableActivity="true" android:taskAffinity="br.com.cinemajunto.chatfilme.chat"
-            android:excludeFromRecents="true" android:windowSoftInputMode="adjustResize"
+            android:label="Chat Filme · chat" android:launchMode="singleTask" android:windowSoftInputMode="adjustResize"
             android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden">
             <layout android:minWidth="180dp" android:minHeight="120dp"/>
         </activity>
