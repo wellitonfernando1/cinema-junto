@@ -1,0 +1,3 @@
+<resources>
+    <string name="split_screen_description">Divide a tela ao tocar em Chat para manter o filme acima e a conversa abaixo. Usa o comando de divisão do Android ou os botões da tela de aplicativos recentes. Lê somente os controles de Recentes do sistema; não lê o conteúdo do streaming, não controla o player e não toca nos seus botões. A compatibilidade depende do aparelho e do streaming.</string>
+</resources>
