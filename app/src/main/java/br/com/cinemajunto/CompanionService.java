@@ -186,6 +186,8 @@ public class CompanionService extends Service {
         windows.getDefaultDisplay().getRealMetrics(movieDisplay);
         movieOrientation=movieDisplay.widthPixels>movieDisplay.heightPixels
             ?android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE:android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT;
+        int windowOrientation=SplitScreenService.instance.foregroundWindowOrientation();
+        if(windowOrientation!=android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED)movieOrientation=windowOrientation;
         setOverlayOrientation(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT);
         ui.postDelayed(()->{
             if(destroyed || !openingChat)return;
