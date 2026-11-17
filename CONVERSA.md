@@ -27,7 +27,7 @@ Não substitui teste em aparelhos físicos, nem valida Netflix, Max, Darkflix ou
 ## Atualização 0.2: chat em tela dividida
 Requer Android 12L (API 32) ou mais recente. A divisão automática e o retorno foram desenvolvidos para o mecanismo de janelas do Android atual.
 - Escolha o app do filme em Abrir aplicativo do filme. O nome selecionado permite localizar seu ícone em Recentes.
-- Ative a sobreposição (Bolinha) e Chat Filme · dividir tela na Acessibilidade, após ler a explicação no app.
+- Ative a sobreposição (Bolinha), Permitir rotação do chat e Chat Filme · dividir tela na Acessibilidade, após ler as explicações no app. A rotação é temporária; as configurações anteriores são restauradas ao fechar ou encerrar o serviço.
 - Ao tocar em Chat sobre o filme, solicita orientação vertical, usa a divisão do Android e abre uma tarefa separada com histórico, mensagem e teclado.
 - Após três segundos sem digitar ou interagir no chat, esconde o teclado, preserva o rascunho e recolhe somente a tarefa do chat. Solicita a orientação anterior. Não envia automaticamente o rascunho.
 - A acessibilidade acessa apenas os controles de Recentes do launcher e SystemUI. Não inspeciona a janela do streaming nem aciona seu player.
