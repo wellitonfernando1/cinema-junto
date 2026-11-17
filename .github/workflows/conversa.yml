@@ -1,7 +1,7 @@
 name: Cinema Conversa APK
 on:
   push:
-    branches: [conversa-independente, fix/chat-split-0.2]
+    branches: [conversa-independente]
   workflow_dispatch:
 permissions:
   contents: read
@@ -39,7 +39,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        api: [29, 35]
+        api: [35]
     steps:
       - uses: actions/download-artifact@v4
         with:
@@ -83,4 +83,4 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "chat-filme-0.2-${{ github.run_number }}" Chat-Filme-0.2.apk --target "${{ github.sha }}" --prerelease --title "Chat Filme 0.2 · tela dividida em teste" --notes "Chat em tarefa separada, divisão pelo Android, solicitação de orientação vertical e retorno após 3 segundos sem interação. Rascunho preservado. Testes de divisão e temporizador em emuladores Android 10 e 15. Exige sobreposição e ativação da acessibilidade para os controles de Recentes. Reprodução contínua e compatibilidade com streamings reais ainda não validadas."
+          gh release create "chat-filme-0.2-${{ github.run_number }}" Chat-Filme-0.2.apk --target "${{ github.sha }}" --prerelease --title "Chat Filme 0.2 · tela dividida em teste" --notes "Chat em tarefa separada, divisão pelo Android, solicitação de orientação vertical e retorno após 3 segundos sem interação. Rascunho preservado. Testes de divisão e temporizador em emulador Android 15. Exige sobreposição e ativação da acessibilidade para os controles de Recentes. Reprodução contínua e compatibilidade com streamings reais ainda não validadas."
