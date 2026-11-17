@@ -42,7 +42,7 @@ public class SplitChatTest {
             while((SplitChatActivity.instance==null || !SplitChatActivity.instance.confirmedSplit) && SystemClock.elapsedRealtime()<until)Thread.sleep(100);
             main(()->{
                 SplitChatActivity a=SplitChatActivity.instance;
-                assertNotNull("Android did not open the chat alongside the existing movie task",a);
+                assertNotNull("Android did not open the chat alongside the existing movie task; " + (SplitScreenService.instance==null ? "helper stopped" : SplitScreenService.instance.diagnostic),a);
                 assertTrue(a.isInMultiWindowMode());
                 android.util.DisplayMetrics metrics=new android.util.DisplayMetrics();
                 a.getWindowManager().getDefaultDisplay().getRealMetrics(metrics);
