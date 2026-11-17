@@ -16,8 +16,8 @@ android {
         minSdk companion ? 32 : 29
         targetSdk 35
         testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
-        versionCode companion ? 2 : 17
-        versionName companion ? "0.2-chat-dividido" : "0.17-${trial}"
+        versionCode companion ? 3 : 17
+        versionName companion ? "0.3-configuracao" : "0.17-${trial}"
     }
     if (companion) {
         sourceSets.main.manifest.srcFile 'src/companion/AndroidManifest.xml'

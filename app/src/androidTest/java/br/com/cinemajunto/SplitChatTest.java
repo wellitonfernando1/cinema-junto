@@ -47,7 +47,7 @@ public class SplitChatTest {
             Thread.sleep(1500);
             int[] before=screenSize();
             assertTrue("Movie fixture must begin in landscape",before[0]>before[1]);
-            main(()->CompanionService.instance.openComposer());
+            main(()->{CompanionService.instance.joined=true;CompanionService.instance.openComposer();});
             until=SystemClock.elapsedRealtime()+12000;
             while((SplitChatActivity.instance==null || !SplitChatActivity.instance.confirmedSplit) && SystemClock.elapsedRealtime()<until)Thread.sleep(100);
             java.util.concurrent.atomic.AtomicBoolean keyboard=new java.util.concurrent.atomic.AtomicBoolean();
@@ -86,7 +86,7 @@ public class SplitChatTest {
             assertEquals(0,Settings.System.getInt(c.getContentResolver(),Settings.System.ACCELEROMETER_ROTATION,-1));
             assertTrue("Movie window must expand again",bounds.width()>restored[0]*0.9 && bounds.height()>restored[1]*0.75);
             // The second use must reuse the task instead of getting stuck after the first close.
-            main(()->CompanionService.instance.openComposer());
+            main(()->{CompanionService.instance.joined=true;CompanionService.instance.openComposer();});
             until=SystemClock.elapsedRealtime()+12000;
             while((!SplitChatActivity.instance.active || !SplitChatActivity.instance.keyboardReady) && SystemClock.elapsedRealtime()<until)Thread.sleep(100);
             main(()->{assertTrue("Chat must open again",SplitChatActivity.instance.active);assertEquals("rascunho preservado!",SplitChatActivity.instance.input.getText().toString());});

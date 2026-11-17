@@ -46,7 +46,7 @@ public class CompanionService extends Service {
         if(intent==null){stopSelf();return START_NOT_STICKY;}
         if("stop".equals(intent.getAction())){stopSelf();return START_NOT_STICKY;}
         try{
-            startForeground(73,notification(), ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE | ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK);
+            startForeground(73,notification(), ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK);
             String next=RoomPassword.normalize(intent.getStringExtra("room"));
             String nextRole=intent.getStringExtra("role");
             if(!"host".equals(nextRole)&&!"viewer".equals(nextRole))throw new IllegalArgumentException("Entrada inválida.");
@@ -105,7 +105,7 @@ public class CompanionService extends Service {
         disconnect();
         setStatus(reason.isEmpty()?"Sala desconectada":reason);
         // Protocol rejections require a user decision; transient network failures reconnect with mic off.
-        if(code==-1&&retries<8){
+        if((code==-1 || code==1001 || code==1011 || code==1012 || code==1013) && retries<8){
             long delay=Math.min(30000,1000L<<Math.min(retries++,5));
             int token=generation;
             ui.postDelayed(()->{if(!destroyed&&token==generation)connect();},delay);
@@ -119,7 +119,13 @@ public class CompanionService extends Service {
     boolean voiceActive(){return voice!=null&&(voice.held||voice.pending||voice.isTalking());}
     void toggleVoice(){
         if(!joined||voice==null)return;
-        if(voiceActive())voice.release();else voice.press();
+        if(checkSelfPermission(android.Manifest.permission.RECORD_AUDIO)!=android.content.pm.PackageManager.PERMISSION_GRANTED){
+            startActivity(new Intent(this,CompanionActivity.class).setAction("voice").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK|Intent.FLAG_ACTIVITY_SINGLE_TOP));return;
+        }
+        if(voiceActive())voice.release();else {
+            try{startForeground(73,notification(),ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE|ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK);voice.press();}
+            catch(Exception e){startActivity(new Intent(this,CompanionActivity.class).setAction("voice").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK|Intent.FLAG_ACTIVITY_SINGLE_TOP));return;}
+        }
         setStatus(voiceActive()?"Microfone ligado · toque para desligar":"Sala conectada · microfone desligado");
     }
     boolean sendChat(String raw){
@@ -175,6 +181,7 @@ public class CompanionService extends Service {
     boolean openingChat;
     int movieOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED;
     void openComposer(){
+        if(!joined){Toast.makeText(this,"A sala está desconectada. Abra o Chat Filme para entrar novamente.",Toast.LENGTH_LONG).show();startActivity(new Intent(this,CompanionActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));return;}
         if(openingChat || (SplitChatActivity.instance!=null && SplitChatActivity.instance.active))return;
         if(SplitScreenService.instance==null){
             Toast.makeText(this,"Ative Chat Filme · dividir tela na Acessibilidade para abrir filme e chat juntos.",Toast.LENGTH_LONG).show();
@@ -183,6 +190,10 @@ public class CompanionService extends Service {
         }
         if(!Settings.System.canWrite(this)){
             Toast.makeText(this,"Ative Permitir rotação do chat antes de abrir a conversa sobre o filme.",Toast.LENGTH_LONG).show();return;
+        }
+        if(getSharedPreferences("conversation-layout",0).getString("movie-label","").isEmpty()){
+            Toast.makeText(this,"Escolha Abrir aplicativo do filme no Chat Filme antes de usar o chat.",Toast.LENGTH_LONG).show();
+            startActivity(new Intent(this,CompanionActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));return;
         }
         openingChat=true;
         android.util.DisplayMetrics movieDisplay=new android.util.DisplayMetrics();
@@ -197,6 +208,7 @@ public class CompanionService extends Service {
             if(destroyed || !openingChat)return;
             SplitScreenService helper=SplitScreenService.instance;
             if(helper==null){restoreMovieOrientation();return;}
+            hideBubble();
             String label=getSharedPreferences("conversation-layout",0).getString("movie-label","");
             helper.splitForegroundMovie(label,()->ui.postDelayed(()->{
                 if(destroyed || !openingChat)return;
@@ -218,10 +230,13 @@ public class CompanionService extends Service {
     }
     void restoreMovieOrientation(){
         openingChat=false;
+        revealBubble();
         setOverlayOrientation(movieOrientation);
         ChatRotation.restore(this);
         ui.postDelayed(()->{if(!openingChat && (SplitChatActivity.instance==null || !SplitChatActivity.instance.active))setOverlayOrientation(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED);},1200);
     }
+    void hideBubble(){if(bubble!=null)bubble.setVisibility(View.GONE);}
+    void revealBubble(){if(bubble!=null)bubble.setVisibility(View.VISIBLE);else showBubble();}
     void closeComposer(){
         if(input!=null){draft=input.getText().toString();getSystemService(android.view.inputmethod.InputMethodManager.class).hideSoftInputFromWindow(input.getWindowToken(),0);}
         if(composer!=null){try{windows.removeViewImmediate(composer);}catch(Exception ignored){}composer=null;}

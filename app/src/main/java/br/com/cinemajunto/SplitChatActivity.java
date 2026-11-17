@@ -43,7 +43,7 @@ public class SplitChatActivity extends Activity {
             android.graphics.Insets i=insets.getInsets(WindowInsets.Type.systemBars()|WindowInsets.Type.ime()|WindowInsets.Type.displayCutout());
             root.setPadding(i.left+12,i.top+8,i.right+12,i.bottom+8);return insets;
         });
-        connection=text("Chat · volta ao filme após 3 s sem digitar",12);root.addView(connection);
+        connection=text(s.status,12);root.addView(connection);
         history=text(s.historyText(),15);history.setTextIsSelectable(true);
         scroll=new ScrollView(this);scroll.setFillViewport(true);scroll.addView(history);
         root.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));
@@ -67,6 +67,7 @@ public class SplitChatActivity extends Activity {
         prepareMovieIfNeeded();
     }
     void prepareMovieIfNeeded(){
+        returning=false;
         CompanionService s=CompanionService.instance;
         Intent movie=getIntent().getParcelableExtra("prepare-movie");
         getIntent().removeExtra("prepare-movie");
@@ -79,7 +80,11 @@ public class SplitChatActivity extends Activity {
     @Override protected void onResume(){super.onResume();ui.postDelayed(this::activateIfSplit,200);}
     void activateIfSplit(){
         CompanionService s=CompanionService.instance;
-        if(preparing || active || checking || s==null || (!s.openingChat && !isInMultiWindowMode()))return;
+        if(preparing || active || checking || s==null)return;
+        if(!s.openingChat && !isInMultiWindowMode()){
+            // A resumed chat task must never cover the movie and leave only its PiP window.
+            returnToMovie();return;
+        }
         checking=true;
         ui.postDelayed(()->{
             checking=false;
@@ -89,7 +94,7 @@ public class SplitChatActivity extends Activity {
                 returnToMovie();return;
             }
             input.setText(s.draft);input.setSelection(input.length());
-            active=true;returning=false;confirmedSplit=true;keyboardReady=false;keyboardAttempts=0;s.openingChat=false;
+            s.hideBubble();active=true;returning=false;confirmedSplit=true;keyboardReady=false;keyboardAttempts=0;s.openingChat=false;
             ui.post(refresh);ui.post(requestKeyboard);
         },500);
     }

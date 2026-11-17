@@ -57,11 +57,11 @@ jobs:
           profile: pixel_2
           disable-animations: true
           script: |
-            adb install -g apks/debug/app-debug.apk
+            adb install apks/debug/app-debug.apk
             adb install -g apks/androidTest/debug/app-debug-androidTest.apk
             adb shell am instrument -w -r -e class br.com.cinemajunto.CompanionTest,br.com.cinemajunto.SplitChatTest br.com.cinemajunto.chatfilme.test/androidx.test.runner.AndroidJUnitRunner > test-result.txt
             cat test-result.txt
-            grep -q 'OK (5 tests)' test-result.txt
+            grep -q 'OK (6 tests)' test-result.txt
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -78,9 +78,9 @@ jobs:
         with:
           name: conversa-apks
           path: apks
-      - run: cp apks/debug/app-debug.apk Chat-Filme-0.2.apk
+      - run: cp apks/debug/app-debug.apk Chat-Filme-0.3.apk
       - name: Publish experimental APK
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "chat-filme-0.2-${{ github.run_number }}" Chat-Filme-0.2.apk --target "${{ github.sha }}" --prerelease --title "Chat Filme 0.2 · tela dividida em teste" --notes "Chat em tarefa separada, divisão pelo Android, solicitação de orientação vertical e retorno após 3 segundos sem interação. Rascunho preservado. Testes de divisão e temporizador em emulador Android 15. Exige sobreposição e ativação da acessibilidade para os controles de Recentes. Reprodução contínua e compatibilidade com streamings reais ainda não validadas."
+          gh release create "chat-filme-0.3-${{ github.run_number }}" Chat-Filme-0.3.apk --target "${{ github.sha }}" --prerelease --title "Chat Filme 0.3 · configuração simplificada" --notes "Configuração guiada de permissões; chat de texto sem exigir microfone; controles flutuantes ocultos durante o chat; retorno ao filme quando a tarefa do chat não está dividida. A compatibilidade com os apps de streaming no aparelho do usuário ainda precisa de validação."

@@ -15,7 +15,9 @@ public class CompanionActivity extends Activity {
     LinearLayout layout;
     EditText password, input;
     TextView history, status;
-    Button mic;
+    Button mic, setup;
+    boolean configuring;
+    int pendingStep;
     final Handler ui = new Handler(Looper.getMainLooper());
     String lastHistory = "";
     final Runnable refresh = new Runnable() {
@@ -23,6 +25,7 @@ public class CompanionActivity extends Activity {
             CompanionService s = CompanionService.instance;
             status.setText(s == null ? "Entre em uma sala para conversar." : s.status);
             mic.setEnabled(s != null && s.joined);
+            if(setup!=null)setup.setText(setupStep()==0 ? "Configuração concluída ✓" : "Configurar chat sobre o filme");
             mic.setText(s != null && s.voiceActive() ? "Desligar microfone" : "Ligar microfone");
             String text = s == null ? "" : s.historyText();
             if (!text.equals(lastHistory)) { history.setText(text); lastHistory = text; }
@@ -42,7 +45,7 @@ public class CompanionActivity extends Activity {
             }
             return insets;
         });
-        label("Cinema Conversa · experimental", 23);
+        label("Chat Filme", 23);
         status = label("Entre em uma sala para conversar.", 14);
         password = field("Código da sala: 4 a 24 letras ou números");
         password.setText(getPreferences(0).getString("room", ""));
@@ -59,23 +62,15 @@ public class CompanionActivity extends Activity {
             } catch (Exception e) { toast(e.getMessage()); }
         });
         LinearLayout actions = new LinearLayout(this); layout.addView(actions);
-        mic = button(actions, "Ligar microfone", () -> { if (CompanionService.instance != null) CompanionService.instance.toggleVoice(); });
+        mic = button(actions, "Ligar microfone", this::requestVoice);
         button(actions, "Bolinha", () -> {
             if (!Settings.canDrawOverlays(this)) startActivity(new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:" + getPackageName())));
             else if (CompanionService.instance != null) CompanionService.instance.showBubble();
             else toast("Entre em uma sala primeiro.");
         });
         button(actions, "Sair", () -> stopService(new Intent(this, CompanionService.class)));
-        button(layout, "Permitir rotação do chat", () -> new AlertDialog.Builder(this)
-            .setTitle("Rotação durante o chat")
-            .setMessage("Permite girar temporariamente a tela para deixar o filme em cima e o chat embaixo. Ao fechar o chat, sua configuração de rotação é restaurada. Ative Permitir alterar configurações na próxima tela.")
-            .setPositiveButton("Configurar",(d,w)->startActivity(new Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS,Uri.parse("package:"+getPackageName()))))
-            .setNegativeButton("Agora não",null).show());
-        button(layout, "Ativar divisão automática do chat", () -> new AlertDialog.Builder(this)
-            .setTitle("Filme em cima, chat embaixo")
-            .setMessage("Ao tocar em Chat sobre o filme, o app usa o comando de tela dividida do Android. Lê os controles de Recentes e usa o divisor do Android para abrir e fechar a divisão. Não lê o conteúdo do streaming nem controla o filme. Após 3 segundos sem digitar, fecha o teclado e o chat e solicita a orientação anterior. O Android e o streaming precisam permitir essa mudança. Ative Chat Filme · dividir tela na próxima tela.")
-            .setPositiveButton("Abrir Acessibilidade", (d,w) -> startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)))
-            .setNegativeButton("Agora não",null).show());
+        setup=button(layout, "Configurar chat sobre o filme", () -> { configuring=true; pendingStep=0; nextSetup(); });
+        label("A configuração abre cada autorização necessária. As já permitidas são puladas. O microfone é opcional e só será pedido ao ligar a voz.",12);
         button(layout, "Abrir aplicativo do filme", this::chooseApp);
         ScrollView scroll = new ScrollView(this);
         history = new TextView(this); history.setTextColor(0xffffffff); history.setTextSize(16); history.setTextIsSelectable(true);
@@ -102,16 +97,41 @@ public class CompanionActivity extends Activity {
     void join(String role) {
         try {
             String code = RoomPassword.normalize(password.getText().toString());
-            if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
-                requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO}, 1);
-                toast("Após permitir o microfone, toque em Criar sala ou Entrar."); return;
-            }
-            if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED)
-                requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 2);
             getPreferences(0).edit().putString("room",code).apply();
             startForegroundService(new Intent(this, CompanionService.class).putExtra("room",code).putExtra("role",role));
         } catch (Exception e) { toast(e.getMessage()); }
     }
+    int setupStep(){
+        if(!Settings.canDrawOverlays(this))return 1;
+        if(!Settings.System.canWrite(this))return 2;
+        if(SplitScreenService.instance==null)return 3;
+        return 0;
+    }
+    void nextSetup(){
+        int step=setupStep();
+        if(step==0){configuring=false;toast("Configuração concluída. Escolha o aplicativo do filme.");return;}
+        if(step==pendingStep){configuring=false;return;}
+        pendingStep=step;
+        String message=step==1 ? "Ative Aparecer sobre outros aplicativos para exibir o botão Chat." : step==2 ? "Ative Permitir alterar configurações para girar a tela durante a conversa e restaurar depois." : "Ative Chat Filme · dividir tela em Aplicativos instalados. Essa autorização aciona os controles de tela dividida do Android. Se o sistema bloquear, abra Informações do app > ⋮ > Permitir configurações restritas.";
+        new AlertDialog.Builder(this).setTitle("Configuração · etapa "+step+" de 3").setMessage(message)
+            .setPositiveButton("Abrir autorização",(d,w)->{
+                Intent settings=new Intent(step==1 ? Settings.ACTION_MANAGE_OVERLAY_PERMISSION : step==2 ? Settings.ACTION_MANAGE_WRITE_SETTINGS : Settings.ACTION_ACCESSIBILITY_SETTINGS);
+                if(step!=3)settings.setData(Uri.parse("package:"+getPackageName()));
+                try{startActivity(settings);}catch(Exception e){configuring=false;toast("Abra essa autorização nas configurações do celular.");}
+            }).setNegativeButton("Depois",(d,w)->configuring=false).setOnCancelListener(d->configuring=false).show();
+    }
+    void requestVoice(){
+        if(CompanionService.instance==null || !CompanionService.instance.joined){toast("Entre em uma sala conectada primeiro.");return;}
+        if(checkSelfPermission(Manifest.permission.RECORD_AUDIO)!=PackageManager.PERMISSION_GRANTED){
+            requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO},1);return;
+        }
+        CompanionService.instance.toggleVoice();
+    }
+    @Override public void onRequestPermissionsResult(int request,String[] permissions,int[] grants){
+        super.onRequestPermissionsResult(request,permissions,grants);
+        if(request==1 && grants.length>0 && grants[0]==PackageManager.PERMISSION_GRANTED)requestVoice();
+    }
+    @Override protected void onNewIntent(Intent intent){super.onNewIntent(intent);setIntent(intent);if("voice".equals(intent.getAction()))requestVoice();}
     void chooseApp() {
         Intent query = new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER);
         java.util.List<android.content.pm.ResolveInfo> apps = getPackageManager().queryIntentActivities(query, 0);
@@ -124,13 +144,13 @@ public class CompanionActivity extends Activity {
             Intent launch=new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
                 .setComponent(new ComponentName(a.packageName,a.name))
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-            getSharedPreferences("conversation-layout",0).edit().putString("movie-label",names[index]).apply();
+            getSharedPreferences("conversation-layout",0).edit().putString("movie-label",names[index]).putString("movie-package",a.packageName).apply();
             try { if(CompanionService.instance==null){toast("Entre em uma sala primeiro.");return;} startActivity(SplitChatActivity.prepare(this,launch)); }
             catch(Exception e){toast("Não foi possível abrir esse aplicativo.");}
         }).show();
     }
     void toast(String s) { Toast.makeText(this,s == null ? "Não foi possível concluir." : s,Toast.LENGTH_LONG).show(); }
-    @Override protected void onResume(){super.onResume();ui.post(refresh);}
+    @Override protected void onResume(){super.onResume();ui.post(refresh);if(configuring)ui.postDelayed(this::nextSetup,500);if("voice".equals(getIntent().getAction())){getIntent().setAction(null);ui.post(this::requestVoice);}}
     @Override protected void onPause(){ui.removeCallbacks(refresh);super.onPause();}
     @Override protected void onSaveInstanceState(Bundle state){state.putString("room",password.getText().toString());state.putString("draft",input.getText().toString());super.onSaveInstanceState(state);}
 }

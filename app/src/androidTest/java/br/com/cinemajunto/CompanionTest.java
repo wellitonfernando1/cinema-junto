@@ -14,10 +14,20 @@ public class CompanionTest {
         try (ActivityScenario<CompanionActivity> scenario = ActivityScenario.launch(CompanionActivity.class)) {
             scenario.onActivity(a -> {
                 assertNotNull(a.history);
-                assertEquals("Cinema Conversa · experimental", ((android.widget.TextView)a.layout.getChildAt(0)).getText().toString());
+                assertEquals("Chat Filme", ((android.widget.TextView)a.layout.getChildAt(0)).getText().toString());
                 assertNull(CompanionService.instance);
             });
         }
+    }
+    @Test public void textRoomDoesNotRequireMicrophonePermission() throws Exception {
+        Context c=ApplicationProvider.getApplicationContext();
+        try(ActivityScenario<CompanionActivity> scenario=ActivityScenario.launch(CompanionActivity.class)){
+            scenario.onActivity(a->{a.password.setText("textonlytest");a.join("host");});
+            long until=android.os.SystemClock.elapsedRealtime()+5000;
+            while(CompanionService.instance==null && android.os.SystemClock.elapsedRealtime()<until)Thread.sleep(100);
+            assertNotNull("A text room must start without microphone access",CompanionService.instance);
+            assertEquals(PackageManager.PERMISSION_DENIED,c.checkSelfPermission(android.Manifest.permission.RECORD_AUDIO));
+        } finally {c.stopService(new android.content.Intent(c,CompanionService.class));Thread.sleep(300);}
     }
     @Test public void companionDoesNotDeclareScreenCapture() throws Exception {
         Context c=ApplicationProvider.getApplicationContext();
