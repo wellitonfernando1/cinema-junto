@@ -39,7 +39,11 @@ public class SplitChatTest {
             shell("settings put system accelerometer_rotation 0");
             shell("settings put system user_rotation 1");
             c.startActivity(SplitChatActivity.prepare(c,new Intent(Settings.ACTION_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)));
-            Thread.sleep(1000);main(()->CompanionService.instance.openComposer());
+            Thread.sleep(1500);
+            android.util.DisplayMetrics before=new android.util.DisplayMetrics();
+            SplitChatActivity.instance.getWindowManager().getDefaultDisplay().getRealMetrics(before);
+            assertTrue("Movie fixture must begin in landscape",before.widthPixels>before.heightPixels);
+            main(()->CompanionService.instance.openComposer());
             until=SystemClock.elapsedRealtime()+12000;
             while((SplitChatActivity.instance==null || !SplitChatActivity.instance.confirmedSplit) && SystemClock.elapsedRealtime()<until)Thread.sleep(100);
             main(()->{
@@ -57,6 +61,9 @@ public class SplitChatTest {
             Thread.sleep(1700);
             assertNotNull(SplitChatActivity.instance);
             assertFalse("Chat must leave the screen after typing stops",SplitChatActivity.instance.active);
+            android.util.DisplayMetrics restored=new android.util.DisplayMetrics();
+            long restoreUntil=SystemClock.elapsedRealtime()+2500;
+            do{SplitChatActivity.instance.getWindowManager().getDefaultDisplay().getRealMetrics(restored);if(restored.widthPixels>restored.heightPixels)break;Thread.sleep(100);}while(SystemClock.elapsedRealtime()<restoreUntil);
             android.view.accessibility.AccessibilityNodeInfo root=InstrumentationRegistry.getInstrumentation().getUiAutomation(android.app.UiAutomation.FLAG_DONT_SUPPRESS_ACCESSIBILITY_SERVICES).getRootInActiveWindow();
             assertNotNull(root);assertEquals("com.android.settings",String.valueOf(root.getPackageName()));
             android.graphics.Rect bounds=new android.graphics.Rect();root.getBoundsInScreen(bounds);
