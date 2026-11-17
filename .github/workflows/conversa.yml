@@ -59,14 +59,20 @@ jobs:
           script: |
             adb install apks/debug/app-debug.apk
             adb install -g apks/androidTest/debug/app-debug-androidTest.apk
-            adb shell am instrument -w -r -e class br.com.cinemajunto.CompanionTest,br.com.cinemajunto.SplitChatTest br.com.cinemajunto.chatfilme.test/androidx.test.runner.AndroidJUnitRunner > test-result.txt
+            adb shell am instrument -w -r -e class br.com.cinemajunto.CompanionTest#textRoomDoesNotRequireMicrophonePermission br.com.cinemajunto.chatfilme.test/androidx.test.runner.AndroidJUnitRunner > text-only-result.txt
+            cat text-only-result.txt
+            grep -q 'OK (1 test)' text-only-result.txt
+            adb shell pm grant br.com.cinemajunto.chatfilme android.permission.RECORD_AUDIO
+            adb shell am instrument -w -r -e class br.com.cinemajunto.CompanionTest#opensWithoutJoiningOrRecording,br.com.cinemajunto.CompanionTest#companionDoesNotDeclareScreenCapture,br.com.cinemajunto.CompanionTest#voiceCanBeCancelledBeforeGrantWithoutChangingAudioMode,br.com.cinemajunto.SplitChatTest br.com.cinemajunto.chatfilme.test/androidx.test.runner.AndroidJUnitRunner > test-result.txt
             cat test-result.txt
-            grep -q 'OK (6 tests)' test-result.txt
+            grep -q 'OK (5 tests)' test-result.txt
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: conversa-tests-${{ matrix.api }}
-          path: test-result.txt
+          path: |
+            text-only-result.txt
+            test-result.txt
   publish:
     needs: test
     runs-on: ubuntu-latest
