@@ -24,6 +24,30 @@ public class SplitScreenService extends AccessibilityService {
         info.packageNames=new String[]{home,"com.android.systemui","com.android.launcher3","com.google.android.apps.nexuslauncher","com.sec.android.app.launcher"};
         setServiceInfo(info);
     }
+    void expandUpperMovie(Runnable done){
+        AccessibilityWindowInfo focused=null;
+        for(AccessibilityWindowInfo window:getWindows())if(window.getType()==AccessibilityWindowInfo.TYPE_APPLICATION && window.isFocused()){focused=window;break;}
+        if(focused==null){done.run();return;}
+        android.graphics.Rect chat=new android.graphics.Rect();focused.getBoundsInScreen(chat);
+        android.graphics.Rect upper=null;
+        for(AccessibilityWindowInfo window:getWindows()){
+            if(window.getType()!=AccessibilityWindowInfo.TYPE_APPLICATION || window.getId()==focused.getId())continue;
+            android.graphics.Rect candidate=new android.graphics.Rect();window.getBoundsInScreen(candidate);
+            if(candidate.width()>chat.width()*0.7 && candidate.bottom<=chat.top+30 && candidate.bottom>candidate.top){
+                if(upper==null || candidate.bottom>upper.bottom)upper=candidate;
+            }
+        }
+        if(upper==null || chat.top<=upper.top){done.run();return;}
+        float x=(Math.max(chat.left,upper.left)+Math.min(chat.right,upper.right))/2f;
+        float y=(upper.bottom+chat.top)/2f;
+        android.graphics.Path path=new android.graphics.Path();path.moveTo(x,y);path.lineTo(x,chat.bottom-4);
+        GestureDescription gesture=new GestureDescription.Builder().addStroke(new GestureDescription.StrokeDescription(path,0,400)).build();
+        boolean dispatched=dispatchGesture(gesture,new GestureResultCallback(){
+            @Override public void onCompleted(GestureDescription g){ui.postDelayed(done,150);}
+            @Override public void onCancelled(GestureDescription g){done.run();}
+        },ui);
+        if(!dispatched)done.run();
+    }
     int foregroundWindowOrientation(){
         for(AccessibilityWindowInfo window:getWindows()){
             if(window.getType()==AccessibilityWindowInfo.TYPE_APPLICATION && (window.isFocused() || window.isActive())){
