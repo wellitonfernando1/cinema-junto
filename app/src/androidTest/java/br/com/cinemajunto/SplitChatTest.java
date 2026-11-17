@@ -50,10 +50,13 @@ public class SplitChatTest {
             main(()->CompanionService.instance.openComposer());
             until=SystemClock.elapsedRealtime()+12000;
             while((SplitChatActivity.instance==null || !SplitChatActivity.instance.confirmedSplit) && SystemClock.elapsedRealtime()<until)Thread.sleep(100);
+            Thread.sleep(700);
             main(()->{
                 SplitChatActivity a=SplitChatActivity.instance;
                 assertNotNull("Android did not open the chat alongside the existing movie task; " + (SplitScreenService.instance==null ? "helper stopped" : SplitScreenService.instance.diagnostic),a);
                 assertTrue(a.isInMultiWindowMode());
+                assertTrue("Native keyboard must be visible",a.getWindow().getDecorView().getRootWindowInsets().isVisible(android.view.WindowInsets.Type.ime()));
+                assertTrue("History must retain visible space above the keyboard",a.scroll.getHeight()>Math.round(36*a.getResources().getDisplayMetrics().density));
                 android.util.DisplayMetrics metrics=new android.util.DisplayMetrics();
                 a.getWindowManager().getDefaultDisplay().getRealMetrics(metrics);
                 assertTrue("Expected portrait for video above chat",metrics.heightPixels>metrics.widthPixels);
