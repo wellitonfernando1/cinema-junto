@@ -66,7 +66,12 @@ public class CompanionActivity extends Activity {
             else toast("Entre em uma sala primeiro.");
         });
         button(actions, "Sair", () -> stopService(new Intent(this, CompanionService.class)));
-        button(layout, "Abrir outro app em tela dividida", this::chooseApp);
+        button(layout, "Ativar divisão automática do chat", () -> new AlertDialog.Builder(this)
+            .setTitle("Filme em cima, chat embaixo")
+            .setMessage("Ao tocar em Chat sobre o filme, o app usa o comando de tela dividida do Android. Lê apenas os botões da tela Recentes do sistema para escolher a divisão. Não lê o conteúdo do streaming nem controla o filme. Após 3 segundos sem digitar, fecha o teclado e o chat e solicita a orientação anterior. O Android e o streaming precisam permitir essa mudança. Ative Chat Filme · dividir tela na próxima tela.")
+            .setPositiveButton("Abrir Acessibilidade", (d,w) -> startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)))
+            .setNegativeButton("Agora não",null).show());
+        button(layout, "Abrir aplicativo do filme", this::chooseApp);
         ScrollView scroll = new ScrollView(this);
         history = new TextView(this); history.setTextColor(0xffffffff); history.setTextSize(16); history.setTextIsSelectable(true);
         scroll.addView(history); layout.addView(scroll, new LinearLayout.LayoutParams(-1,0,1));
@@ -113,8 +118,9 @@ public class CompanionActivity extends Activity {
             android.content.pm.ActivityInfo a=apps.get(index).activityInfo;
             Intent launch=new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
                 .setComponent(new ComponentName(a.packageName,a.name))
-                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_LAUNCH_ADJACENT);
-            try { startActivity(launch); toast("Se a tela não dividir, use Aplicativos recentes > Tela dividida."); }
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            getSharedPreferences("conversation-layout",0).edit().putString("movie-label",names[index]).apply();
+            try { startActivity(launch); }
             catch(Exception e){toast("Não foi possível abrir esse aplicativo.");}
         }).show();
     }
