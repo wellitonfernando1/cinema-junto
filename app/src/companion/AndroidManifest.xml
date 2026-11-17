@@ -7,10 +7,21 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE"/>
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK"/>
     <queries><intent><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent></queries>
-    <application android:label="Cinema Conversa" android:theme="@android:style/Theme.Material.NoActionBar" android:allowBackup="false" android:usesCleartextTraffic="false">
+    <application android:label="Chat Filme" android:theme="@android:style/Theme.Material.NoActionBar" android:allowBackup="false" android:usesCleartextTraffic="false">
         <activity android:name=".CompanionActivity" android:exported="true" android:resizeableActivity="true" android:windowSoftInputMode="adjustResize">
             <intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent-filter>
         </activity>
+        <activity android:name=".SplitChatActivity" android:exported="false"
+            android:resizeableActivity="true" android:taskAffinity="br.com.cinemajunto.conversa.chat"
+            android:excludeFromRecents="true" android:windowSoftInputMode="adjustResize"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden">
+            <layout android:minWidth="180dp" android:minHeight="120dp"/>
+        </activity>
+        <service android:name=".SplitScreenService" android:exported="true"
+            android:label="Chat Filme · dividir tela" android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter><action android:name="android.accessibilityservice.AccessibilityService"/></intent-filter>
+            <meta-data android:name="android.accessibilityservice" android:resource="@xml/split_screen_accessibility"/>
+        </service>
         <service android:name=".CompanionService" android:exported="false" android:foregroundServiceType="microphone|mediaPlayback"/>
     </application>
 </manifest>
