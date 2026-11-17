@@ -70,7 +70,7 @@ public class SplitChatTest {
             android.view.accessibility.AccessibilityNodeInfo root=InstrumentationRegistry.getInstrumentation().getUiAutomation(android.app.UiAutomation.FLAG_DONT_SUPPRESS_ACCESSIBILITY_SERVICES).getRootInActiveWindow();
             assertNotNull(root);assertEquals("com.android.settings",String.valueOf(root.getPackageName()));
             android.graphics.Rect bounds=new android.graphics.Rect();root.getBoundsInScreen(bounds);
-            assertTrue("Expected landscape movie after closing chat",restored[0]>restored[1]);
+            assertTrue("Expected landscape movie after closing chat; physical="+java.util.Arrays.toString(restored)+" movie="+bounds+" saved="+CompanionService.instance.movieOrientation,restored[0]>restored[1]);
             assertTrue("Movie window must expand again",bounds.width()>restored[0]*0.9 && bounds.height()>restored[1]*0.75);
             // The second use must reuse the task instead of getting stuck after the first close.
             main(()->CompanionService.instance.openComposer());
