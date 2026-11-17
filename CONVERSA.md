@@ -25,6 +25,7 @@ Workflow conversa.yml compila, verifica assinatura, instala e executa três test
 Não substitui teste em aparelhos físicos, nem valida Netflix, Max, Darkflix ou YouCine.
 
 ## Atualização 0.2: chat em tela dividida
+Requer Android 12L (API 32) ou mais recente. A divisão automática e o retorno foram desenvolvidos para o mecanismo de janelas do Android atual.
 - Escolha o app do filme em Abrir aplicativo do filme. O nome selecionado permite localizar seu ícone em Recentes.
 - Ative a sobreposição (Bolinha) e Chat Filme · dividir tela na Acessibilidade, após ler a explicação no app.
 - Ao tocar em Chat sobre o filme, solicita orientação vertical, usa a divisão do Android e abre uma tarefa separada com histórico, mensagem e teclado.
