@@ -27,14 +27,14 @@ public class CompanionService extends Service {
     int generation, retries;
     long lastChat;
     LinearLayout bubble, composer;
-    Button mic;
+    ImageButton mic;
     TextView recent;
     EditText input;
     WindowManager windows;
     WindowManager.LayoutParams bubbleParams;
     final Runnable redraw = new Runnable(){public void run(){
         if (destroyed) return;
-        if(mic!=null){mic.setText(voiceActive() ? "■" : "●"); mic.setContentDescription(voiceActive() ? "Desligar microfone" : "Ligar microfone");mic.setEnabled(joined);}
+        if(mic!=null){mic.setImageResource(voiceActive() ? android.R.drawable.ic_media_pause : R.drawable.ic_microphone); mic.setContentDescription(voiceActive() ? "Desligar microfone" : "Ligar microfone");mic.setEnabled(joined);}
         ui.postDelayed(this,250);
     }};
     @Override public void onCreate(){
@@ -153,8 +153,8 @@ public class CompanionService extends Service {
     void showBubble(){
         if(destroyed||bubble!=null||!Settings.canDrawOverlays(this))return;
         bubble=new LinearLayout(this);bubble.setBackgroundColor(0xee202531);
-        mic=new Button(this);mic.setTextColor(0xffffffff);mic.setBackgroundTintList(android.content.res.ColorStateList.valueOf(0xffc62828));
-        mic.setText("●");mic.setOnClickListener(v->toggleVoice());bubble.addView(mic,new LinearLayout.LayoutParams(dp(56),dp(56)));
+        mic=new ImageButton(this);mic.setImageTintList(android.content.res.ColorStateList.valueOf(0xffffffff));mic.setBackgroundTintList(android.content.res.ColorStateList.valueOf(0xffc62828));
+        mic.setImageResource(R.drawable.ic_microphone);mic.setPadding(dp(14),dp(14),dp(14),dp(14));mic.setOnClickListener(v->toggleVoice());bubble.addView(mic,new LinearLayout.LayoutParams(dp(56),dp(56)));
         Button chat=new Button(this);chat.setText("Chat");chat.setOnClickListener(v->openComposer());bubble.addView(chat,new LinearLayout.LayoutParams(dp(64),dp(56)));
         TextView handle=new TextView(this);handle.setText("↕");handle.setTextColor(0xffffffff);handle.setGravity(Gravity.CENTER);handle.setContentDescription("Arrastar conversa");
         bubble.addView(handle,new LinearLayout.LayoutParams(dp(28),dp(56)));
