@@ -68,7 +68,7 @@ public class CompanionActivity extends Activity {
         button(actions, "Sair", () -> stopService(new Intent(this, CompanionService.class)));
         button(layout, "Ativar divisão automática do chat", () -> new AlertDialog.Builder(this)
             .setTitle("Filme em cima, chat embaixo")
-            .setMessage("Ao tocar em Chat sobre o filme, o app usa o comando de tela dividida do Android. Lê apenas os botões da tela Recentes do sistema para escolher a divisão. Não lê o conteúdo do streaming nem controla o filme. Após 3 segundos sem digitar, fecha o teclado e o chat e solicita a orientação anterior. O Android e o streaming precisam permitir essa mudança. Ative Chat Filme · dividir tela na próxima tela.")
+            .setMessage("Ao tocar em Chat sobre o filme, o app usa o comando de tela dividida do Android. Lê os controles de Recentes e usa o divisor do Android para abrir e fechar a divisão. Não lê o conteúdo do streaming nem controla o filme. Após 3 segundos sem digitar, fecha o teclado e o chat e solicita a orientação anterior. O Android e o streaming precisam permitir essa mudança. Ative Chat Filme · dividir tela na próxima tela.")
             .setPositiveButton("Abrir Acessibilidade", (d,w) -> startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)))
             .setNegativeButton("Agora não",null).show());
         button(layout, "Abrir aplicativo do filme", this::chooseApp);
