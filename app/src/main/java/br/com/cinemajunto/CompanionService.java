@@ -182,8 +182,10 @@ public class CompanionService extends Service {
             return;
         }
         openingChat=true;
-        movieOrientation=getResources().getConfiguration().orientation==android.content.res.Configuration.ORIENTATION_LANDSCAPE
-            ?android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE:android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT;
+        android.util.DisplayMetrics movieDisplay=new android.util.DisplayMetrics();
+        windows.getDefaultDisplay().getRealMetrics(movieDisplay);
+        movieOrientation=movieDisplay.widthPixels>movieDisplay.heightPixels
+            ?android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE:android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT;
         setOverlayOrientation(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT);
         ui.postDelayed(()->{
             if(destroyed || !openingChat)return;
