@@ -36,9 +36,9 @@ public class SplitChatTest {
             while((CompanionService.instance==null || SplitScreenService.instance==null) && SystemClock.elapsedRealtime()<until)Thread.sleep(100);
             assertNotNull("Accessibility helper did not start",SplitScreenService.instance);
             assertNotNull(CompanionService.instance);
-            c.startActivity(new Intent(Settings.ACTION_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+            c.startActivity(SplitChatActivity.prepare(c,new Intent(Settings.ACTION_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)));
             Thread.sleep(1000);main(()->CompanionService.instance.openComposer());
-            until=SystemClock.elapsedRealtime()+9000;
+            until=SystemClock.elapsedRealtime()+12000;
             while((SplitChatActivity.instance==null || !SplitChatActivity.instance.confirmedSplit) && SystemClock.elapsedRealtime()<until)Thread.sleep(100);
             main(()->{
                 SplitChatActivity a=SplitChatActivity.instance;
@@ -51,12 +51,17 @@ public class SplitChatTest {
             });
             Thread.sleep(1500);
             main(()->{assertNotNull(SplitChatActivity.instance);SplitChatActivity.instance.input.append("!");});
-            Thread.sleep(1800);assertNotNull("Closed before 3 seconds after last edit",SplitChatActivity.instance);
+            Thread.sleep(1800);assertTrue("Closed before 3 seconds after last edit",SplitChatActivity.instance.active);
             Thread.sleep(1700);
-            assertNull("Chat task should be removed after typing stops",SplitChatActivity.instance);
+            assertNotNull(SplitChatActivity.instance);
+            assertFalse("Chat must leave the screen after typing stops",SplitChatActivity.instance.active);
+            android.view.accessibility.AccessibilityNodeInfo root=InstrumentationRegistry.getInstrumentation().getUiAutomation(android.app.UiAutomation.FLAG_DONT_SUPPRESS_ACCESSIBILITY_SERVICES).getRootInActiveWindow();
+            assertNotNull(root);assertEquals("com.android.settings",String.valueOf(root.getPackageName()));
+            android.graphics.Rect bounds=new android.graphics.Rect();root.getBoundsInScreen(bounds);
+            assertTrue("Movie window must expand again",bounds.height()>1400);
             assertEquals("rascunho preservado!",CompanionService.instance.draft);
         } finally {
-            main(()->{if(SplitChatActivity.instance!=null)SplitChatActivity.instance.returnToMovie();});
+            main(()->{if(SplitChatActivity.instance!=null)SplitChatActivity.instance.finishAndRemoveTask();});
             c.stopService(new Intent(c,CompanionService.class));
             shell("settings delete secure enabled_accessibility_services");
         }
