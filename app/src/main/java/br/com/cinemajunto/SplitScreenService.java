@@ -14,6 +14,7 @@ public class SplitScreenService extends AccessibilityService {
     String movieLabel="";
     boolean active, openedIcon;
     int attempts;
+    String diagnostic="No Recents window observed";
     @Override protected void onServiceConnected() {
         instance = this;
         AccessibilityServiceInfo info=getServiceInfo();
@@ -38,6 +39,7 @@ public class SplitScreenService extends AccessibilityService {
         if(root!=null){
             String pkg=String.valueOf(root.getPackageName());
             if(Arrays.asList(getServiceInfo().packageNames).contains(pkg)){
+                diagnostic=describe(root,0);
                 AccessibilityNodeInfo split=findSplit(root);
                 if(split!=null && click(split)){complete(true);return;}
                 if(!openedIcon){
@@ -48,6 +50,12 @@ public class SplitScreenService extends AccessibilityService {
         }
         ui.postDelayed(this,300);
     }};
+    String describe(AccessibilityNodeInfo n,int depth){
+        if(depth>8)return "";
+        StringBuilder b=new StringBuilder("\n"+n.getViewIdResourceName()+" text="+n.getText()+" desc="+n.getContentDescription()+" click="+n.isClickable());
+        for(int i=0;i<n.getChildCount() && b.length()<7000;i++){AccessibilityNodeInfo c=n.getChild(i);if(c!=null)b.append(describe(c,depth+1));}
+        return b.toString();
+    }
     AccessibilityNodeInfo findSplit(AccessibilityNodeInfo n){
         String value=(String.valueOf(n.getText())+" "+String.valueOf(n.getContentDescription())).toLowerCase(Locale.ROOT);
         if(value.contains("split screen") || value.contains("split top") || value.contains("split-screen") || value.contains("tela dividida") || value.trim().equals("dividir null"))return n;
