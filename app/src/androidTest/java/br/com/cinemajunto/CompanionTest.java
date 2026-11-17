@@ -23,8 +23,8 @@ public class CompanionTest {
         Context c=ApplicationProvider.getApplicationContext();
         PackageInfo p=c.getPackageManager().getPackageInfo(c.getPackageName(),PackageManager.GET_PERMISSIONS|PackageManager.GET_ACTIVITIES);
         for(String permission:p.requestedPermissions) assertNotEquals("android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION",permission);
-        assertEquals(1,p.activities.length);
-        assertEquals("br.com.cinemajunto.CompanionActivity",p.activities[0].name);
+        assertEquals(2,p.activities.length);
+        assertTrue(java.util.Arrays.stream(p.activities).anyMatch(a -> a.name.equals("br.com.cinemajunto.SplitChatActivity") && !a.exported));
     }
     @Test public void voiceCanBeCancelledBeforeGrantWithoutChangingAudioMode() {
         Context c=ApplicationProvider.getApplicationContext();
