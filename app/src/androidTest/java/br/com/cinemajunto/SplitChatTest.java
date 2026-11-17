@@ -15,6 +15,10 @@ public class SplitChatTest {
         try(ParcelFileDescriptor p=InstrumentationRegistry.getInstrumentation().getUiAutomation(android.app.UiAutomation.FLAG_DONT_SUPPRESS_ACCESSIBILITY_SERVICES).executeShellCommand(command);
             java.io.InputStream in=new ParcelFileDescriptor.AutoCloseInputStream(p)) { while(in.read()!=-1){} }
     }
+    int[] screenSize(){
+        android.graphics.Bitmap image=InstrumentationRegistry.getInstrumentation().getUiAutomation(android.app.UiAutomation.FLAG_DONT_SUPPRESS_ACCESSIBILITY_SERVICES).takeScreenshot();
+        assertNotNull(image);int[] size={image.getWidth(),image.getHeight()};image.recycle();return size;
+    }
     @Test public void typingResetsThreeSecondDeadlineAndCancelStopsIt() throws Exception {
         AtomicInteger fired=new AtomicInteger();
         ChatIdleTimer timer=new ChatIdleTimer(new Handler(Looper.getMainLooper()),fired::incrementAndGet);
@@ -40,9 +44,8 @@ public class SplitChatTest {
             shell("settings put system user_rotation 1");
             c.startActivity(SplitChatActivity.prepare(c,new Intent(Settings.ACTION_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)));
             Thread.sleep(1500);
-            android.util.DisplayMetrics before=new android.util.DisplayMetrics();
-            SplitChatActivity.instance.getWindowManager().getDefaultDisplay().getRealMetrics(before);
-            assertTrue("Movie fixture must begin in landscape",before.widthPixels>before.heightPixels);
+            int[] before=screenSize();
+            assertTrue("Movie fixture must begin in landscape",before[0]>before[1]);
             main(()->CompanionService.instance.openComposer());
             until=SystemClock.elapsedRealtime()+12000;
             while((SplitChatActivity.instance==null || !SplitChatActivity.instance.confirmedSplit) && SystemClock.elapsedRealtime()<until)Thread.sleep(100);
@@ -61,16 +64,14 @@ public class SplitChatTest {
             Thread.sleep(1700);
             assertNotNull(SplitChatActivity.instance);
             assertFalse("Chat must leave the screen after typing stops",SplitChatActivity.instance.active);
-            android.util.DisplayMetrics restored=new android.util.DisplayMetrics();
+            int[] restored;
             long restoreUntil=SystemClock.elapsedRealtime()+2500;
-            do{SplitChatActivity.instance.getWindowManager().getDefaultDisplay().getRealMetrics(restored);if(restored.widthPixels>restored.heightPixels)break;Thread.sleep(100);}while(SystemClock.elapsedRealtime()<restoreUntil);
+            do{restored=screenSize();if(restored[0]>restored[1])break;Thread.sleep(100);}while(SystemClock.elapsedRealtime()<restoreUntil);
             android.view.accessibility.AccessibilityNodeInfo root=InstrumentationRegistry.getInstrumentation().getUiAutomation(android.app.UiAutomation.FLAG_DONT_SUPPRESS_ACCESSIBILITY_SERVICES).getRootInActiveWindow();
             assertNotNull(root);assertEquals("com.android.settings",String.valueOf(root.getPackageName()));
             android.graphics.Rect bounds=new android.graphics.Rect();root.getBoundsInScreen(bounds);
-            android.util.DisplayMetrics display=new android.util.DisplayMetrics();
-            SplitChatActivity.instance.getWindowManager().getDefaultDisplay().getRealMetrics(display);
-            assertTrue("Expected landscape movie after closing chat",display.widthPixels>display.heightPixels);
-            assertTrue("Movie window must expand again",bounds.width()>display.widthPixels*0.9 && bounds.height()>display.heightPixels*0.75);
+            assertTrue("Expected landscape movie after closing chat",restored[0]>restored[1]);
+            assertTrue("Movie window must expand again",bounds.width()>restored[0]*0.9 && bounds.height()>restored[1]*0.75);
             // The second use must reuse the task instead of getting stuck after the first close.
             main(()->CompanionService.instance.openComposer());
             until=SystemClock.elapsedRealtime()+12000;
