@@ -50,7 +50,13 @@ public class SplitChatTest {
             main(()->CompanionService.instance.openComposer());
             until=SystemClock.elapsedRealtime()+12000;
             while((SplitChatActivity.instance==null || !SplitChatActivity.instance.confirmedSplit) && SystemClock.elapsedRealtime()<until)Thread.sleep(100);
-            Thread.sleep(700);
+            java.util.concurrent.atomic.AtomicBoolean keyboard=new java.util.concurrent.atomic.AtomicBoolean();
+            long keyboardUntil=SystemClock.elapsedRealtime()+5000;
+            do{
+                main(()->{SplitChatActivity a=SplitChatActivity.instance;if(a!=null && a.active){android.view.WindowInsets insets=a.getWindow().getDecorView().getRootWindowInsets();keyboard.set(insets!=null && insets.isVisible(android.view.WindowInsets.Type.ime()));}});
+                if(keyboard.get())break;Thread.sleep(100);
+            }while(SystemClock.elapsedRealtime()<keyboardUntil);
+            Thread.sleep(150);
             main(()->{
                 SplitChatActivity a=SplitChatActivity.instance;
                 assertNotNull("Android did not open the chat alongside the existing movie task; " + (SplitScreenService.instance==null ? "helper stopped" : SplitScreenService.instance.diagnostic),a);
@@ -82,7 +88,7 @@ public class SplitChatTest {
             // The second use must reuse the task instead of getting stuck after the first close.
             main(()->CompanionService.instance.openComposer());
             until=SystemClock.elapsedRealtime()+12000;
-            while(!SplitChatActivity.instance.active && SystemClock.elapsedRealtime()<until)Thread.sleep(100);
+            while((!SplitChatActivity.instance.active || !SplitChatActivity.instance.keyboardReady) && SystemClock.elapsedRealtime()<until)Thread.sleep(100);
             main(()->{assertTrue("Chat must open again",SplitChatActivity.instance.active);assertEquals("rascunho preservado!",SplitChatActivity.instance.input.getText().toString());});
             Thread.sleep(3500);assertFalse(SplitChatActivity.instance.active);
             assertEquals("rascunho preservado!",CompanionService.instance.draft);
