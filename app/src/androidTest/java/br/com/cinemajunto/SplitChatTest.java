@@ -29,6 +29,7 @@ public class SplitChatTest {
     @Test public void opensRealSplitAndReturnsToMovieWithDraft() throws Exception {
         Context c=ApplicationProvider.getApplicationContext();
         shell("appops set "+c.getPackageName()+" SYSTEM_ALERT_WINDOW allow");
+        shell("appops set "+c.getPackageName()+" WRITE_SETTINGS allow");
         shell("settings put secure enabled_accessibility_services "+c.getPackageName()+"/br.com.cinemajunto.SplitScreenService");
         shell("settings put secure accessibility_enabled 1");
         try(ActivityScenario<CompanionActivity> scenario=ActivityScenario.launch(CompanionActivity.class)){
@@ -71,6 +72,9 @@ public class SplitChatTest {
             assertNotNull(root);assertEquals("com.android.settings",String.valueOf(root.getPackageName()));
             android.graphics.Rect bounds=new android.graphics.Rect();root.getBoundsInScreen(bounds);
             assertTrue("Expected landscape movie after closing chat; physical="+java.util.Arrays.toString(restored)+" movie="+bounds+" saved="+CompanionService.instance.movieOrientation,restored[0]>restored[1]);
+            assertFalse("Temporary rotation session must be restored",ChatRotation.prefs(c).getBoolean("active",false));
+            assertEquals(1,Settings.System.getInt(c.getContentResolver(),Settings.System.USER_ROTATION,-1));
+            assertEquals(0,Settings.System.getInt(c.getContentResolver(),Settings.System.ACCELEROMETER_ROTATION,-1));
             assertTrue("Movie window must expand again",bounds.width()>restored[0]*0.9 && bounds.height()>restored[1]*0.75);
             // The second use must reuse the task instead of getting stuck after the first close.
             main(()->CompanionService.instance.openComposer());
