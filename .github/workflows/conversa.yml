@@ -1,7 +1,7 @@
 name: Cinema Conversa APK
 on:
   push:
-    branches: [conversa-independente, fix/chat-split-0.2]
+    branches: [conversa-independente]
   workflow_dispatch:
 permissions:
   contents: read
