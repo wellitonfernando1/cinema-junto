@@ -66,6 +66,11 @@ public class CompanionActivity extends Activity {
             else toast("Entre em uma sala primeiro.");
         });
         button(actions, "Sair", () -> stopService(new Intent(this, CompanionService.class)));
+        button(layout, "Permitir rotação do chat", () -> new AlertDialog.Builder(this)
+            .setTitle("Rotação durante o chat")
+            .setMessage("Permite girar temporariamente a tela para deixar o filme em cima e o chat embaixo. Ao fechar o chat, sua configuração de rotação é restaurada. Ative Permitir alterar configurações na próxima tela.")
+            .setPositiveButton("Configurar",(d,w)->startActivity(new Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS,Uri.parse("package:"+getPackageName()))))
+            .setNegativeButton("Agora não",null).show());
         button(layout, "Ativar divisão automática do chat", () -> new AlertDialog.Builder(this)
             .setTitle("Filme em cima, chat embaixo")
             .setMessage("Ao tocar em Chat sobre o filme, o app usa o comando de tela dividida do Android. Lê os controles de Recentes e usa o divisor do Android para abrir e fechar a divisão. Não lê o conteúdo do streaming nem controla o filme. Após 3 segundos sem digitar, fecha o teclado e o chat e solicita a orientação anterior. O Android e o streaming precisam permitir essa mudança. Ative Chat Filme · dividir tela na próxima tela.")
