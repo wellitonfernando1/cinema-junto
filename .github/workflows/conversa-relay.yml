@@ -1,0 +1,16 @@
+name: Conversation relay smoke test
+on:
+  push:
+    branches: [conversa-verificacao]
+permissions:
+  contents: read
+jobs:
+  relay:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node .github/scripts/test-conversation-relay.mjs
