@@ -36,6 +36,8 @@ public class SplitChatTest {
             while((CompanionService.instance==null || SplitScreenService.instance==null) && SystemClock.elapsedRealtime()<until)Thread.sleep(100);
             assertNotNull("Accessibility helper did not start",SplitScreenService.instance);
             assertNotNull(CompanionService.instance);
+            shell("settings put system accelerometer_rotation 0");
+            shell("settings put system user_rotation 1");
             c.startActivity(SplitChatActivity.prepare(c,new Intent(Settings.ACTION_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)));
             Thread.sleep(1000);main(()->CompanionService.instance.openComposer());
             until=SystemClock.elapsedRealtime()+12000;
@@ -58,12 +60,23 @@ public class SplitChatTest {
             android.view.accessibility.AccessibilityNodeInfo root=InstrumentationRegistry.getInstrumentation().getUiAutomation(android.app.UiAutomation.FLAG_DONT_SUPPRESS_ACCESSIBILITY_SERVICES).getRootInActiveWindow();
             assertNotNull(root);assertEquals("com.android.settings",String.valueOf(root.getPackageName()));
             android.graphics.Rect bounds=new android.graphics.Rect();root.getBoundsInScreen(bounds);
-            assertTrue("Movie window must expand again",bounds.height()>1400);
+            android.util.DisplayMetrics display=new android.util.DisplayMetrics();
+            SplitChatActivity.instance.getWindowManager().getDefaultDisplay().getRealMetrics(display);
+            assertTrue("Expected landscape movie after closing chat",display.widthPixels>display.heightPixels);
+            assertTrue("Movie window must expand again",bounds.width()>display.widthPixels*0.9 && bounds.height()>display.heightPixels*0.75);
+            // The second use must reuse the task instead of getting stuck after the first close.
+            main(()->CompanionService.instance.openComposer());
+            until=SystemClock.elapsedRealtime()+12000;
+            while(!SplitChatActivity.instance.active && SystemClock.elapsedRealtime()<until)Thread.sleep(100);
+            main(()->{assertTrue("Chat must open again",SplitChatActivity.instance.active);assertEquals("rascunho preservado!",SplitChatActivity.instance.input.getText().toString());});
+            Thread.sleep(3500);assertFalse(SplitChatActivity.instance.active);
             assertEquals("rascunho preservado!",CompanionService.instance.draft);
         } finally {
             main(()->{if(SplitChatActivity.instance!=null)SplitChatActivity.instance.finishAndRemoveTask();});
             c.stopService(new Intent(c,CompanionService.class));
             shell("settings delete secure enabled_accessibility_services");
+            shell("settings put system accelerometer_rotation 1");
+            shell("settings put system user_rotation 0");
         }
     }
 }
