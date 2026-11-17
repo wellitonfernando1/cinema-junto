@@ -12,7 +12,7 @@ public class SplitScreenService extends AccessibilityService {
     final Handler ui = new Handler(Looper.getMainLooper());
     Runnable success, failure;
     String movieLabel="";
-    boolean active, openedIcon;
+    boolean active, openedIcon, selectingChat;
     int attempts;
     String diagnostic="No Recents window observed";
     @Override protected void onServiceConnected() {
@@ -25,7 +25,7 @@ public class SplitScreenService extends AccessibilityService {
         setServiceInfo(info);
     }
     void splitForegroundMovie(String label, Runnable ready, Runnable failed) {
-        cancel(); success=ready; failure=failed; movieLabel=label; active=true; attempts=0; openedIcon=false;
+        cancel(); success=ready; failure=failed; movieLabel=label; active=true; attempts=0; openedIcon=false;selectingChat=false;
         if(Build.VERSION.SDK_INT<=30 && performGlobalAction(GLOBAL_ACTION_TOGGLE_SPLIT_SCREEN)) {
             complete(true); return;
         }
@@ -34,15 +34,20 @@ public class SplitScreenService extends AccessibilityService {
     }
     final Runnable scan=new Runnable(){public void run(){
         if(!active)return;
-        if(++attempts>16){complete(false);return;}
+        if(++attempts>24){complete(false);return;}
         AccessibilityNodeInfo root=getRootInActiveWindow();
         if(root!=null){
             String pkg=String.valueOf(root.getPackageName());
             if(Arrays.asList(getServiceInfo().packageNames).contains(pkg)){
                 diagnostic=describe(root,0);
-                if(performSplitShortcut(root)){complete(true);return;}
+                if(selectingChat){
+                    AccessibilityNodeInfo chat=findChatTask(root);
+                    if(chat!=null && chat.performAction(AccessibilityNodeInfo.ACTION_CLICK)){complete(true);return;}
+                    ui.postDelayed(this,300);return;
+                }
+                if(performSplitShortcut(root)){selectingChat=true;ui.postDelayed(this,800);return;}
                 AccessibilityNodeInfo split=findSplit(root);
-                if(split!=null && click(split)){complete(true);return;}
+                if(split!=null && click(split)){selectingChat=true;ui.postDelayed(this,800);return;}
                 if(!openedIcon){
                     AccessibilityNodeInfo icon=findMovieIcon(root);
                     if(icon!=null && click(icon))openedIcon=true;
@@ -51,6 +56,12 @@ public class SplitScreenService extends AccessibilityService {
         }
         ui.postDelayed(this,300);
     }};
+    AccessibilityNodeInfo findChatTask(AccessibilityNodeInfo n){
+        String id=n.getViewIdResourceName();String desc=String.valueOf(n.getContentDescription());
+        if(id!=null && id.endsWith("/task") && desc.contains("Chat Filme · chat"))return n;
+        for(int i=0;i<n.getChildCount();i++){AccessibilityNodeInfo c=n.getChild(i);if(c!=null){AccessibilityNodeInfo found=findChatTask(c);if(found!=null)return found;}}
+        return null;
+    }
     String describe(AccessibilityNodeInfo n,int depth){
         if(depth>8)return "";
         StringBuilder b=new StringBuilder("\n"+n.getViewIdResourceName()+" text="+n.getText()+" desc="+n.getContentDescription()+" click="+n.isClickable()+" actions="+n.getActionList());
