@@ -38,7 +38,7 @@ public class CompanionService extends Service {
         ui.postDelayed(this,250);
     }};
     @Override public void onCreate(){
-        super.onCreate(); instance=this; windows=getSystemService(WindowManager.class);
+        super.onCreate(); instance=this; windows=getSystemService(WindowManager.class);ChatRotation.restore(this);
         getSystemService(NotificationManager.class).createNotificationChannel(new NotificationChannel("conversation","Conversa durante o filme",NotificationManager.IMPORTANCE_LOW));
         ui.post(redraw);
     }
@@ -181,6 +181,9 @@ public class CompanionService extends Service {
             startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
             return;
         }
+        if(!Settings.System.canWrite(this)){
+            Toast.makeText(this,"Ative Permitir rotação do chat antes de abrir a conversa sobre o filme.",Toast.LENGTH_LONG).show();return;
+        }
         openingChat=true;
         android.util.DisplayMetrics movieDisplay=new android.util.DisplayMetrics();
         windows.getDefaultDisplay().getRealMetrics(movieDisplay);
@@ -188,6 +191,7 @@ public class CompanionService extends Service {
             ?android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE:android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT;
         int windowOrientation=SplitScreenService.instance.foregroundWindowOrientation();
         if(windowOrientation!=android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED)movieOrientation=windowOrientation;
+        if(!ChatRotation.begin(this)){openingChat=false;Toast.makeText(this,"Não foi possível preparar a rotação da tela.",Toast.LENGTH_LONG).show();return;}
         setOverlayOrientation(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT);
         ui.postDelayed(()->{
             if(destroyed || !openingChat)return;
@@ -215,6 +219,7 @@ public class CompanionService extends Service {
     void restoreMovieOrientation(){
         openingChat=false;
         setOverlayOrientation(movieOrientation);
+        ChatRotation.restore(this);
         ui.postDelayed(()->{if(!openingChat && (SplitChatActivity.instance==null || !SplitChatActivity.instance.active))setOverlayOrientation(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED);},1200);
     }
     void closeComposer(){
@@ -228,6 +233,7 @@ public class CompanionService extends Service {
     }
     @Override public IBinder onBind(Intent i){return null;}
     @Override public void onDestroy(){
+        ChatRotation.restore(this);
         destroyed=true;if(SplitScreenService.instance!=null)SplitScreenService.instance.cancel();if(SplitChatActivity.instance!=null)SplitChatActivity.instance.finishAndRemoveTask();disconnect();ui.removeCallbacksAndMessages(null);closeComposer();
         if(bubble!=null){try{windows.removeViewImmediate(bubble);}catch(Exception ignored){}bubble=null;}
         client.dispatcher().executorService().shutdown();client.connectionPool().evictAll();
