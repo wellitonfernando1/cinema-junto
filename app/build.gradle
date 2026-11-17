@@ -7,7 +7,7 @@ android {
     namespace 'br.com.cinemajunto'
     compileSdk 35
     defaultConfig {
-        applicationId companion ? "br.com.cinemajunto.conversa" : "br.com.cinemajunto.teste${trial.toLowerCase()}"
+        applicationId companion ? "br.com.cinemajunto.chatfilme" : "br.com.cinemajunto.teste${trial.toLowerCase()}"
         manifestPlaceholders = [appLabel: "Cinema ${trial} 0.17"]
         buildConfigField 'String', 'TRIAL', "\"${trial}\""
         buildConfigField 'int', 'CAPTURE_FPS', trial == 'A' ? '60' : '30'
