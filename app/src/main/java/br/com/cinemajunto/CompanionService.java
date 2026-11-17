@@ -175,7 +175,7 @@ public class CompanionService extends Service {
     boolean openingChat;
     int movieOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED;
     void openComposer(){
-        if(openingChat || SplitChatActivity.instance!=null)return;
+        if(openingChat || (SplitChatActivity.instance!=null && SplitChatActivity.instance.active))return;
         if(SplitScreenService.instance==null){
             Toast.makeText(this,"Ative Chat Filme · dividir tela na Acessibilidade para abrir filme e chat juntos.",Toast.LENGTH_LONG).show();
             startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
@@ -193,9 +193,10 @@ public class CompanionService extends Service {
             helper.splitForegroundMovie(label,()->ui.postDelayed(()->{
                 if(destroyed || !openingChat)return;
                 try{
-                    startActivity(new Intent(this,SplitChatActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK|Intent.FLAG_ACTIVITY_LAUNCH_ADJACENT));
+                    if(Build.VERSION.SDK_INT<=30)startActivity(new Intent(this,SplitChatActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK|Intent.FLAG_ACTIVITY_LAUNCH_ADJACENT));
+                    else if(SplitChatActivity.instance!=null)SplitChatActivity.instance.activateIfSplit();
                 }catch(Exception e){restoreMovieOrientation();Toast.makeText(this,"Não foi possível abrir o chat em tela dividida.",Toast.LENGTH_LONG).show();}
-                openingChat=false;
+                if(Build.VERSION.SDK_INT<=30)openingChat=false;
             },450),()->{
                 restoreMovieOrientation();
                 Toast.makeText(this,"A divisão automática não ficou disponível. Escolha o app do filme no Chat Filme ou use Recentes > Tela dividida.",Toast.LENGTH_LONG).show();
@@ -210,7 +211,7 @@ public class CompanionService extends Service {
     void restoreMovieOrientation(){
         openingChat=false;
         setOverlayOrientation(movieOrientation);
-        ui.postDelayed(()->{if(!openingChat && SplitChatActivity.instance==null)setOverlayOrientation(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED);},1200);
+        ui.postDelayed(()->{if(!openingChat && (SplitChatActivity.instance==null || !SplitChatActivity.instance.active))setOverlayOrientation(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED);},1200);
     }
     void closeComposer(){
         if(input!=null){draft=input.getText().toString();getSystemService(android.view.inputmethod.InputMethodManager.class).hideSoftInputFromWindow(input.getWindowToken(),0);}
@@ -223,7 +224,7 @@ public class CompanionService extends Service {
     }
     @Override public IBinder onBind(Intent i){return null;}
     @Override public void onDestroy(){
-        destroyed=true;if(SplitScreenService.instance!=null)SplitScreenService.instance.cancel();if(SplitChatActivity.instance!=null)SplitChatActivity.instance.returnToMovie();disconnect();ui.removeCallbacksAndMessages(null);closeComposer();
+        destroyed=true;if(SplitScreenService.instance!=null)SplitScreenService.instance.cancel();if(SplitChatActivity.instance!=null)SplitChatActivity.instance.finishAndRemoveTask();disconnect();ui.removeCallbacksAndMessages(null);closeComposer();
         if(bubble!=null){try{windows.removeViewImmediate(bubble);}catch(Exception ignored){}bubble=null;}
         client.dispatcher().executorService().shutdown();client.connectionPool().evictAll();
         if(instance==this)instance=null;stopForeground(STOP_FOREGROUND_REMOVE);super.onDestroy();
