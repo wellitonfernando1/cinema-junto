@@ -2,6 +2,6 @@
     android:description="@string/split_screen_description"
     android:accessibilityEventTypes="typeWindowStateChanged"
     android:packageNames="com.android.launcher3,com.android.systemui,com.google.android.apps.nexuslauncher,com.sec.android.app.launcher"
-    android:accessibilityFlags="flagReportViewIds"
+    android:accessibilityFlags="flagReportViewIds|flagRetrieveInteractiveWindows"
     android:canRetrieveWindowContent="true"
     android:notificationTimeout="100" />
