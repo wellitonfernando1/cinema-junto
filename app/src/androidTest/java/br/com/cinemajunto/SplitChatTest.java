@@ -12,7 +12,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 public class SplitChatTest {
     void main(Runnable r){InstrumentationRegistry.getInstrumentation().runOnMainSync(r);}
     void shell(String command) throws Exception {
-        try(ParcelFileDescriptor p=InstrumentationRegistry.getInstrumentation().getUiAutomation().executeShellCommand(command);
+        try(ParcelFileDescriptor p=InstrumentationRegistry.getInstrumentation().getUiAutomation(android.app.UiAutomation.FLAG_DONT_SUPPRESS_ACCESSIBILITY_SERVICES).executeShellCommand(command);
             java.io.InputStream in=new ParcelFileDescriptor.AutoCloseInputStream(p)) { while(in.read()!=-1){} }
     }
     @Test public void typingResetsThreeSecondDeadlineAndCancelStopsIt() throws Exception {
