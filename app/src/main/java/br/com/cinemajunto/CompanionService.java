@@ -63,7 +63,7 @@ public class CompanionService extends Service {
             .setContentTitle("Cinema Conversa").setContentText(status).setContentIntent(open)
             .addAction(new Notification.Action.Builder(null,"Encerrar",stop).build()).setOngoing(true).build();
     }
-    void setStatus(String text){status=text;if(composerStatus!=null)composerStatus.setText(text);getSystemService(NotificationManager.class).notify(73,notification());}
+    void setStatus(String text){status=text;getSystemService(NotificationManager.class).notify(73,notification());}
     void connect(){
         if(destroyed)return;
         final int attempt=++generation; joined=false;setStatus("Conectando à sala…");
@@ -145,7 +145,7 @@ public class CompanionService extends Service {
         history.addLast(line);while(history.size()>200)history.removeFirst();
         JSONArray saved=new JSONArray();for(String item:history)saved.put(item);
         getSharedPreferences("conversation-history",0).edit().putString(historyKey(),saved.toString()).apply();
-        if(recent!=null){recent.setText(historyText());if(composerScroll!=null)composerScroll.post(()->{if(composerScroll!=null)composerScroll.fullScroll(View.FOCUS_DOWN);});}
+        if(recent!=null)recent.setText(historyText());
     }
     String historyText(){return String.join("\n\n",history);}
     int dp(int n){return Math.round(n*getResources().getDisplayMetrics().density);}
@@ -178,76 +178,19 @@ public class CompanionService extends Service {
         });
         try{windows.addView(bubble,bubbleParams);}catch(Exception e){bubble=null;mic=null;setStatus("Ative a permissão de aparecer sobre outros aplicativos.");}
     }
-    final ChatIdleTimer composerIdle=new ChatIdleTimer(ui,this::closeComposer);
-    ScrollView composerScroll;
-    TextView composerStatus;
-    boolean composerKeyboardReady;
-    int composerKeyboardAttempts;
-    final Runnable composerKeyboard=new Runnable(){public void run(){
-        if(composer==null || input==null)return;
-        WindowInsets insets=composer.getRootWindowInsets();
-        if(insets!=null && insets.isVisible(WindowInsets.Type.ime())){
-            composerKeyboardReady=true;composerIdle.touch();return;
-        }
-        input.requestFocus();
-        getSystemService(android.view.inputmethod.InputMethodManager.class).showSoftInput(input,android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT);
-        if(++composerKeyboardAttempts<20)ui.postDelayed(this,200);
-    }};
     boolean openingChat;
     int movieOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED;
     void openComposer(){
         if(destroyed)return;
-        if(composer!=null){input.requestFocus();ui.removeCallbacks(composerKeyboard);ui.post(composerKeyboard);return;}
-        if(!Settings.canDrawOverlays(this)){
-            Toast.makeText(this,"Permita aparecer sobre outros aplicativos para abrir o chat.",Toast.LENGTH_LONG).show();return;
-        }
-        // Open a focusable overlay directly. Never navigate Recents, Home or a movie task.
         openingChat=false;
         if(SplitScreenService.instance!=null)SplitScreenService.instance.cancel();
-        composerKeyboardReady=false;composerKeyboardAttempts=0;
-        composer=new LinearLayout(this){
-            @Override public boolean dispatchTouchEvent(MotionEvent event){
-                if(composerKeyboardReady)composerIdle.touch();
-                return super.dispatchTouchEvent(event);
-            }
-        };
-        composer.setOrientation(LinearLayout.VERTICAL);composer.setPadding(dp(12),dp(8),dp(12),dp(8));
-        composer.setBackgroundColor(0xff151922);
-        LinearLayout heading=new LinearLayout(this);composer.addView(heading);
-        TextView title=new TextView(this);title.setText("Chat Filme");title.setTextSize(18);title.setTextColor(0xffffffff);
-        heading.addView(title,new LinearLayout.LayoutParams(0,-2,1));
-        Button close=new Button(this);close.setText("×");close.setContentDescription("Fechar chat");close.setMinWidth(0);close.setMinimumWidth(0);
-        close.setOnClickListener(v->closeComposer());heading.addView(close,new LinearLayout.LayoutParams(dp(48),dp(40)));
-        composerStatus=new TextView(this);composerStatus.setTextColor(0xffc5d3ea);composerStatus.setTextSize(12);
-        composerStatus.setText(status);composer.addView(composerStatus);
-        recent=new TextView(this);recent.setTextColor(0xffffffff);recent.setTextSize(15);recent.setText(historyText().isEmpty()?"As mensagens da sala aparecem aqui.":historyText());
-        composerScroll=new ScrollView(this);composerScroll.setFillViewport(true);composerScroll.addView(recent);
-        composer.addView(composerScroll,new LinearLayout.LayoutParams(-1,0,1));
-        LinearLayout row=new LinearLayout(this);composer.addView(row);
-        input=new EditText(this);input.setTextColor(0xffffffff);input.setHintTextColor(0xffbbbbbb);input.setHint("Mensagem");input.setSingleLine(true);
-        input.setFilters(new android.text.InputFilter[]{new android.text.InputFilter.LengthFilter(280)});
-        input.setImeOptions(android.view.inputmethod.EditorInfo.IME_ACTION_SEND);input.setText(draft);input.setSelection(input.length());
-        row.addView(input,new LinearLayout.LayoutParams(0,-2,1));
-        Button send=new Button(this);send.setText("Enviar");send.setOnClickListener(v->sendComposer());row.addView(send);
-        input.setOnEditorActionListener((v,action,event)->{if(action==android.view.inputmethod.EditorInfo.IME_ACTION_SEND){sendComposer();return true;}return false;});
-        input.addTextChangedListener(new android.text.TextWatcher(){
-            public void beforeTextChanged(CharSequence t,int start,int count,int after){}
-            public void onTextChanged(CharSequence t,int start,int before,int count){draft=t.toString();if(composerKeyboardReady)composerIdle.touch();}
-            public void afterTextChanged(android.text.Editable t){}
-        });
-        android.util.DisplayMetrics metrics=new android.util.DisplayMetrics();windows.getDefaultDisplay().getRealMetrics(metrics);
-        WindowManager.LayoutParams p=params(-1,Math.min(dp(280),Math.round(metrics.heightPixels*0.48f)),Gravity.BOTTOM|Gravity.CENTER_HORIZONTAL,true);
-        p.flags|=WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH;
-        composer.setOnTouchListener((v,event)->{if(event.getAction()==MotionEvent.ACTION_OUTSIDE){closeComposer();return true;}return false;});
-        try{windows.addView(composer,p);hideBubble();input.requestFocus();ui.postDelayed(composerKeyboard,250);}
-        catch(Exception e){closeComposer();Toast.makeText(this,"Não foi possível abrir a janela do chat. Confira a permissão de sobreposição.",Toast.LENGTH_LONG).show();}
-    }
-    void sendComposer(){
-        if(input==null)return;
-        if(input.getText().toString().trim().isEmpty())return;
-        if(sendChat(input.getText().toString()))input.setText("");
-        else Toast.makeText(this,joined?"Não foi possível enviar. A mensagem foi mantida.":"Sala desconectada. Aguarde a conexão; sua mensagem foi mantida.",Toast.LENGTH_LONG).show();
-        if(composerKeyboardReady)composerIdle.touch();
+        // A normal chat activity owns keyboard focus; do not navigate Recents or require split.
+        try{
+            startActivity(new Intent(this,SplitChatActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+        }catch(Exception e){
+            revealBubble();
+            Toast.makeText(this,"Abra o Chat Filme para escrever sua mensagem.",Toast.LENGTH_LONG).show();
+        }
     }
     void setOverlayOrientation(int orientation){
         if(bubble==null)return;
@@ -264,10 +207,9 @@ public class CompanionService extends Service {
     void hideBubble(){if(bubble!=null)bubble.setVisibility(View.GONE);}
     void revealBubble(){if(bubble!=null)bubble.setVisibility(View.VISIBLE);else showBubble();}
     void closeComposer(){
-        composerIdle.cancel();ui.removeCallbacks(composerKeyboard);composerKeyboardReady=false;
         if(input!=null){draft=input.getText().toString();getSystemService(android.view.inputmethod.InputMethodManager.class).hideSoftInputFromWindow(input.getWindowToken(),0);}
         if(composer!=null){try{windows.removeViewImmediate(composer);}catch(Exception ignored){}composer=null;}
-        input=null;recent=null;composerScroll=null;composerStatus=null;if(!destroyed)revealBubble();
+        input=null;recent=null;
     }
     @Override public void onConfigurationChanged(android.content.res.Configuration c){
         super.onConfigurationChanged(c);

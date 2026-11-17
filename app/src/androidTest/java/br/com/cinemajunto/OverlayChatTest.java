@@ -28,23 +28,25 @@ public class OverlayChatTest {
             Thread.sleep(1200);
             main(()->{CompanionService s=CompanionService.instance;s.disconnect();s.setStatus("Sala desconectada");s.openComposer();});
             end=SystemClock.elapsedRealtime()+6000;
-            while(!CompanionService.instance.composerKeyboardReady && SystemClock.elapsedRealtime()<end)Thread.sleep(100);
+            while((SplitChatActivity.instance==null || !SplitChatActivity.instance.keyboardReady) && SystemClock.elapsedRealtime()<end)Thread.sleep(100);
             main(()->{
-                CompanionService s=CompanionService.instance;
-                assertNotNull("Chat must open even while disconnected",s.composer);
-                assertTrue("Native keyboard must be visible",s.composerKeyboardReady);
-                assertTrue("History needs visible space",s.composerScroll.getHeight()>s.dp(24));
-                assertFalse("No split transition is pending",s.openingChat);
-                assertEquals(0,s.composer.getVisibility());
-                s.input.setText("rascunho de teste");s.sendComposer();
-                assertEquals("rascunho de teste",s.input.getText().toString());
+                SplitChatActivity a=SplitChatActivity.instance;
+                assertNotNull("Chat must open even while disconnected",a);
+                assertTrue("Native keyboard must be visible",a.keyboardReady);
+                assertTrue(a.getWindow().getDecorView().getRootWindowInsets().isVisible(WindowInsets.Type.ime()));
+                assertTrue("History needs visible space",a.scroll.getHeight()>36*a.getResources().getDisplayMetrics().density);
+                assertFalse("Chat must not depend on split screen",a.isInMultiWindowMode());
+                assertFalse(CompanionService.instance.openingChat);
+                a.input.setText("rascunho de teste");a.send();
+                assertEquals("rascunho de teste",a.input.getText().toString());
             });
             Thread.sleep(1700);
-            main(()->{assertNotNull(CompanionService.instance.input);CompanionService.instance.input.append("!");});
-            Thread.sleep(1700);main(()->assertNotNull(CompanionService.instance.composer));
-            Thread.sleep(1700);main(()->{assertNull(CompanionService.instance.composer);assertEquals("rascunho de teste!",CompanionService.instance.draft);CompanionService.instance.openComposer();});
-            Thread.sleep(500);
-            main(()->{CompanionService s=CompanionService.instance;assertNotNull(s.input);assertEquals("rascunho de teste!",s.input.getText().toString());s.closeComposer();assertNull(s.composer);assertEquals(View.VISIBLE,s.bubble.getVisibility());});
-        }finally{c.stopService(new Intent(c,CompanionService.class));}
+            main(()->{assertTrue(SplitChatActivity.instance.active);SplitChatActivity.instance.input.append("!");});
+            Thread.sleep(1700);main(()->assertTrue(SplitChatActivity.instance.active));
+            Thread.sleep(1700);main(()->{assertFalse(SplitChatActivity.instance.active);assertEquals("rascunho de teste!",CompanionService.instance.draft);CompanionService.instance.openComposer();});
+            end=SystemClock.elapsedRealtime()+5000;
+            while(!SplitChatActivity.instance.active && SystemClock.elapsedRealtime()<end)Thread.sleep(100);
+            main(()->{SplitChatActivity a=SplitChatActivity.instance;assertTrue(a.active);assertEquals("rascunho de teste!",a.input.getText().toString());a.returnToMovie();assertFalse(a.active);assertEquals(View.VISIBLE,CompanionService.instance.bubble.getVisibility());});
+        }finally{main(()->{if(SplitChatActivity.instance!=null)SplitChatActivity.instance.finishAndRemoveTask();});c.stopService(new Intent(c,CompanionService.class));}
     }
 }

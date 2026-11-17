@@ -17,7 +17,7 @@ android {
         targetSdk 35
         testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
         versionCode companion ? 4 : 17
-        versionName companion ? "0.4-chat-flutuante" : "0.17-${trial}"
+        versionName companion ? "0.4-chat-direto" : "0.17-${trial}"
     }
     if (companion) {
         sourceSets.main.manifest.srcFile 'src/companion/AndroidManifest.xml'

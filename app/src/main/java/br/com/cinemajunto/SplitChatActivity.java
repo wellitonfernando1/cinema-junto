@@ -33,6 +33,7 @@ public class SplitChatActivity extends Activity {
     }};
     @Override public void onCreate(Bundle state){
         super.onCreate(state);instance=this;
+        setRequestedOrientation(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT);
         CompanionService s=CompanionService.instance;
         if(s==null){finishAndRemoveTask();return;}
         getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
@@ -80,23 +81,11 @@ public class SplitChatActivity extends Activity {
     @Override protected void onResume(){super.onResume();ui.postDelayed(this::activateIfSplit,200);}
     void activateIfSplit(){
         CompanionService s=CompanionService.instance;
-        if(preparing || active || checking || s==null)return;
-        if(!s.openingChat && !isInMultiWindowMode()){
-            // A resumed chat task must never cover the movie and leave only its PiP window.
-            returnToMovie();return;
-        }
-        checking=true;
-        ui.postDelayed(()->{
-            checking=false;
-            if(isFinishing() || isDestroyed())return;
-            if(!isInMultiWindowMode()){
-                Toast.makeText(this,"O Android ou este streaming não permitiu dividir a tela.",Toast.LENGTH_LONG).show();
-                returnToMovie();return;
-            }
-            input.setText(s.draft);input.setSelection(input.length());
-            s.hideBubble();active=true;returning=false;confirmedSplit=true;keyboardReady=false;keyboardAttempts=0;s.openingChat=false;
-            ui.post(refresh);ui.post(requestKeyboard);
-        },500);
+        if(preparing || active || s==null || isFinishing() || isDestroyed())return;
+        input.setText(s.draft);input.setSelection(input.length());
+        s.hideBubble();active=true;returning=false;confirmedSplit=isInMultiWindowMode();
+        keyboardReady=false;keyboardAttempts=0;s.openingChat=false;
+        ui.removeCallbacks(refresh);ui.post(refresh);ui.removeCallbacks(requestKeyboard);ui.post(requestKeyboard);
     }
     final Runnable requestKeyboard=new Runnable(){public void run(){
         if(!active || returning)return;
@@ -134,19 +123,13 @@ public class SplitChatActivity extends Activity {
         active=false;confirmedSplit=false;idle.cancel();ui.removeCallbacks(refresh);ui.removeCallbacks(requestKeyboard);
         CompanionService s=CompanionService.instance;
         if(input!=null){if(s!=null)s.draft=input.getText().toString();getSystemService(InputMethodManager.class).hideSoftInputFromWindow(input.getWindowToken(),0);}
-        // Dismiss the native split by expanding the upper movie before backgrounding chat.
-        Runnable finish=()->{
-            if(!moveTaskToBack(true))finishAndRemoveTask();
-            if(s!=null)s.restoreMovieOrientation();
-        };
-        SplitScreenService helper=SplitScreenService.instance;
-        if(isInMultiWindowMode() && helper!=null)ui.postDelayed(()->helper.expandUpperMovie(finish),250);
-        else finish.run();
+        if(s!=null){s.openingChat=false;s.revealBubble();}
+        if(!moveTaskToBack(true))finishAndRemoveTask();
     }
     @Override public void onBackPressed(){returnToMovie();}
     @Override public void onMultiWindowModeChanged(boolean split,Configuration c){
         super.onMultiWindowModeChanged(split,c);
-        if(split)ui.postDelayed(this::activateIfSplit,150);else if(active)returnToMovie();
+        if(!active)ui.postDelayed(this::activateIfSplit,150);
     }
     @Override public void onConfigurationChanged(Configuration c){super.onConfigurationChanged(c);}
     @Override protected void onPause(){idle.cancel();ui.removeCallbacks(refresh);ui.removeCallbacks(requestKeyboard);active=false;confirmedSplit=false;super.onPause();}
