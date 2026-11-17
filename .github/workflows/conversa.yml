@@ -1,7 +1,7 @@
 name: Cinema Conversa APK
 on:
   push:
-    branches: [conversa-independente, fix/chat-split-0.2]
+    branches: [conversa-independente, fix/chat-split-0.2, fix/chat-overlay-0.4]
   workflow_dispatch:
 permissions:
   contents: read
@@ -63,7 +63,7 @@ jobs:
             cat text-only-result.txt
             grep -q 'OK (1 test)' text-only-result.txt
             adb shell pm grant br.com.cinemajunto.chatfilme android.permission.RECORD_AUDIO
-            adb shell am instrument -w -r -e class br.com.cinemajunto.CompanionTest#opensWithoutJoiningOrRecording,br.com.cinemajunto.CompanionTest#companionDoesNotDeclareScreenCapture,br.com.cinemajunto.CompanionTest#voiceCanBeCancelledBeforeGrantWithoutChangingAudioMode,br.com.cinemajunto.SplitChatTest br.com.cinemajunto.chatfilme.test/androidx.test.runner.AndroidJUnitRunner > test-result.txt
+            adb shell am instrument -w -r -e class br.com.cinemajunto.CompanionTest#opensWithoutJoiningOrRecording,br.com.cinemajunto.CompanionTest#companionDoesNotDeclareScreenCapture,br.com.cinemajunto.CompanionTest#voiceCanBeCancelledBeforeGrantWithoutChangingAudioMode,br.com.cinemajunto.SplitChatTest#typingResetsThreeSecondDeadlineAndCancelStopsIt,br.com.cinemajunto.OverlayChatTest br.com.cinemajunto.chatfilme.test/androidx.test.runner.AndroidJUnitRunner > test-result.txt
             cat test-result.txt
             grep -q 'OK (5 tests)' test-result.txt
       - uses: actions/upload-artifact@v4
@@ -73,20 +73,3 @@ jobs:
           path: |
             text-only-result.txt
             test-result.txt
-  publish:
-    needs: test
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
-        with:
-          name: conversa-apks
-          path: apks
-      - run: cp apks/debug/app-debug.apk Chat-Filme-0.3.apk
-      - name: Publish experimental APK
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh release create "chat-filme-0.3-${{ github.run_number }}" Chat-Filme-0.3.apk --target "${{ github.sha }}" --prerelease --title "Chat Filme 0.3 · configuração simplificada" --notes "Configuração guiada de permissões; chat de texto sem exigir microfone; controles flutuantes ocultos durante o chat; retorno ao filme quando a tarefa do chat não está dividida. A compatibilidade com os apps de streaming no aparelho do usuário ainda precisa de validação."

@@ -70,7 +70,7 @@ public class CompanionActivity extends Activity {
         });
         button(actions, "Sair", () -> stopService(new Intent(this, CompanionService.class)));
         setup=button(layout, "Configurar chat sobre o filme", () -> { configuring=true; pendingStep=0; nextSetup(); });
-        label("A configuração abre cada autorização necessária. As já permitidas são puladas. O microfone é opcional e só será pedido ao ligar a voz.",12);
+        label("Para o chat, permita aparecer sobre outros aplicativos. O microfone é opcional. Toque em Chat na bolinha para escrever sem sair do filme.",12);
         button(layout, "Abrir aplicativo do filme", this::chooseApp);
         ScrollView scroll = new ScrollView(this);
         history = new TextView(this); history.setTextColor(0xffffffff); history.setTextSize(16); history.setTextIsSelectable(true);
@@ -101,24 +101,12 @@ public class CompanionActivity extends Activity {
             startForegroundService(new Intent(this, CompanionService.class).putExtra("room",code).putExtra("role",role));
         } catch (Exception e) { toast(e.getMessage()); }
     }
-    int setupStep(){
-        if(!Settings.canDrawOverlays(this))return 1;
-        if(!Settings.System.canWrite(this))return 2;
-        if(SplitScreenService.instance==null)return 3;
-        return 0;
-    }
+    int setupStep(){return Settings.canDrawOverlays(this)?0:1;}
     void nextSetup(){
-        int step=setupStep();
-        if(step==0){configuring=false;toast("Configuração concluída. Escolha o aplicativo do filme.");return;}
-        if(step==pendingStep){configuring=false;return;}
-        pendingStep=step;
-        String message=step==1 ? "Ative Aparecer sobre outros aplicativos para exibir o botão Chat." : step==2 ? "Ative Permitir alterar configurações para girar a tela durante a conversa e restaurar depois." : "Ative Chat Filme · dividir tela em Aplicativos instalados. Essa autorização aciona os controles de tela dividida do Android. Se o sistema bloquear, abra Informações do app > ⋮ > Permitir configurações restritas.";
-        new AlertDialog.Builder(this).setTitle("Configuração · etapa "+step+" de 3").setMessage(message)
-            .setPositiveButton("Abrir autorização",(d,w)->{
-                Intent settings=new Intent(step==1 ? Settings.ACTION_MANAGE_OVERLAY_PERMISSION : step==2 ? Settings.ACTION_MANAGE_WRITE_SETTINGS : Settings.ACTION_ACCESSIBILITY_SETTINGS);
-                if(step!=3)settings.setData(Uri.parse("package:"+getPackageName()));
-                try{startActivity(settings);}catch(Exception e){configuring=false;toast("Abra essa autorização nas configurações do celular.");}
-            }).setNegativeButton("Depois",(d,w)->configuring=false).setOnCancelListener(d->configuring=false).show();
+        configuring=false;
+        if(Settings.canDrawOverlays(this)){toast("Configuração concluída. O botão Chat abre a conversa sobre o filme.");return;}
+        try{startActivity(new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,Uri.parse("package:"+getPackageName())));}
+        catch(Exception e){toast("Abra Aparecer sobre outros aplicativos nas configurações.");}
     }
     void requestVoice(){
         if(CompanionService.instance==null || !CompanionService.instance.joined){toast("Entre em uma sala conectada primeiro.");return;}
@@ -145,7 +133,7 @@ public class CompanionActivity extends Activity {
                 .setComponent(new ComponentName(a.packageName,a.name))
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
             getSharedPreferences("conversation-layout",0).edit().putString("movie-label",names[index]).putString("movie-package",a.packageName).apply();
-            try { if(CompanionService.instance==null){toast("Entre em uma sala primeiro.");return;} startActivity(SplitChatActivity.prepare(this,launch)); }
+            try { if(CompanionService.instance==null){toast("Entre em uma sala primeiro.");return;} startActivity(launch); }
             catch(Exception e){toast("Não foi possível abrir esse aplicativo.");}
         }).show();
     }
