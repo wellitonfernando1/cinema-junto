@@ -131,7 +131,7 @@ public class CompanionActivity extends Activity {
         super.onRequestPermissionsResult(request,permissions,grants);
         if(request==1 && grants.length>0 && grants[0]==PackageManager.PERMISSION_GRANTED)requestVoice();
     }
-    @Override protected void onNewIntent(Intent intent){super.onNewIntent(intent);setIntent(intent);if("voice".equals(intent.getAction()))requestVoice();}
+    @Override protected void onNewIntent(Intent intent){super.onNewIntent(intent);setIntent(intent);if("voice".equals(intent.getAction())){intent.setAction(null);requestVoice();}}
     void chooseApp() {
         Intent query = new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER);
         java.util.List<android.content.pm.ResolveInfo> apps = getPackageManager().queryIntentActivities(query, 0);
