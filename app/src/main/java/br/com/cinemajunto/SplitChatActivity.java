@@ -17,7 +17,7 @@ public class SplitChatActivity extends Activity {
     EditText input;
     TextView history,connection;
     ScrollView scroll;
-    boolean active,confirmedSplit,checking,preparing;
+    boolean active,confirmedSplit,checking,preparing,returning;
     String shownHistory="";
     static Intent prepare(Context c,Intent movie){return new Intent(c,SplitChatActivity.class)
         .putExtra("prepare-movie",movie).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);}
@@ -87,7 +87,7 @@ public class SplitChatActivity extends Activity {
                 Toast.makeText(this,"O Android ou este streaming não permitiu dividir a tela.",Toast.LENGTH_LONG).show();
                 returnToMovie();return;
             }
-            active=true;confirmedSplit=true;s.openingChat=false;
+            active=true;returning=false;confirmedSplit=true;s.openingChat=false;
             input.setText(s.draft);input.setSelection(input.length());input.requestFocus();
             getSystemService(InputMethodManager.class).showSoftInput(input,InputMethodManager.SHOW_IMPLICIT);
             ui.post(refresh);idle.touch();
@@ -106,12 +106,18 @@ public class SplitChatActivity extends Activity {
         return super.dispatchTouchEvent(e);
     }
     void returnToMovie(){
+        if(returning)return;returning=true;
         active=false;confirmedSplit=false;idle.cancel();ui.removeCallbacks(refresh);
         CompanionService s=CompanionService.instance;
         if(input!=null){if(s!=null)s.draft=input.getText().toString();getSystemService(InputMethodManager.class).hideSoftInputFromWindow(input.getWindowToken(),0);}
-        // Keep the chat task available in Recents for the next native split selection.
-        if(!moveTaskToBack(true))finishAndRemoveTask();
-        if(s!=null)s.restoreMovieOrientation();
+        // Dismiss the native split by expanding the upper movie before backgrounding chat.
+        Runnable finish=()->{
+            if(!moveTaskToBack(true))finishAndRemoveTask();
+            if(s!=null)s.restoreMovieOrientation();
+        };
+        SplitScreenService helper=SplitScreenService.instance;
+        if(isInMultiWindowMode() && helper!=null)ui.postDelayed(()->helper.expandUpperMovie(finish),250);
+        else finish.run();
     }
     @Override public void onBackPressed(){returnToMovie();}
     @Override public void onMultiWindowModeChanged(boolean split,Configuration c){
