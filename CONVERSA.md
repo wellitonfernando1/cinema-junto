@@ -1,6 +1,6 @@
 # Cinema Conversa 0.1 — experimental
 
-Aplicativo independente para conversar enquanto cada participante reproduz o filme no próprio serviço. O pacote br.com.cinemajunto.conversa é separado das versões antigas.
+Aplicativo independente para conversar enquanto cada participante reproduz o filme no próprio serviço. O pacote br.com.cinemajunto.chatfilme é separado das versões antigas e instala como Chat Filme.
 
 ## Uso
 1. Instale o APK nos dois aparelhos. Permita o microfone ao entrar.
@@ -28,7 +28,7 @@ Não substitui teste em aparelhos físicos, nem valida Netflix, Max, Darkflix ou
 - Escolha o app do filme em Abrir aplicativo do filme. O nome selecionado permite localizar seu ícone em Recentes.
 - Ative a sobreposição (Bolinha) e Chat Filme · dividir tela na Acessibilidade, após ler a explicação no app.
 - Ao tocar em Chat sobre o filme, solicita orientação vertical, usa a divisão do Android e abre uma tarefa separada com histórico, mensagem e teclado.
-- Após três segundos sem digitar ou interagir no chat, esconde o teclado, preserva o rascunho e remove somente a tarefa do chat. Solicita a orientação anterior. Não envia automaticamente o rascunho.
+- Após três segundos sem digitar ou interagir no chat, esconde o teclado, preserva o rascunho e recolhe somente a tarefa do chat. Solicita a orientação anterior. Não envia automaticamente o rascunho.
 - A acessibilidade acessa apenas os controles de Recentes do launcher e SystemUI. Não inspeciona a janela do streaming nem aciona seu player.
 - Falha de divisão é informada; não é apresentada uma tela de chat cheia como se fosse divisão bem-sucedida.
 - Limites: a divisão pode ser bloqueada pelo fabricante, launcher ou streaming. A rotação solicitada pode ser ignorada. Um streaming pode pausar por iniciativa própria quando muda de janela. Não há garantia de reprodução contínua em todos os serviços.
