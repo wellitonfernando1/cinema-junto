@@ -120,7 +120,7 @@ public class CompanionActivity extends Activity {
                 .setComponent(new ComponentName(a.packageName,a.name))
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
             getSharedPreferences("conversation-layout",0).edit().putString("movie-label",names[index]).apply();
-            try { startActivity(launch); }
+            try { if(CompanionService.instance==null){toast("Entre em uma sala primeiro.");return;} startActivity(SplitChatActivity.prepare(this,launch)); }
             catch(Exception e){toast("Não foi possível abrir esse aplicativo.");}
         }).show();
     }
