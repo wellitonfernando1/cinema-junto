@@ -17,7 +17,8 @@ public class SplitChatActivity extends Activity {
     EditText input;
     TextView history,connection;
     ScrollView scroll;
-    boolean active,confirmedSplit,checking,preparing,returning;
+    boolean active,confirmedSplit,checking,preparing,returning,keyboardReady;
+    int keyboardAttempts;
     String shownHistory="";
     static Intent prepare(Context c,Intent movie){return new Intent(c,SplitChatActivity.class)
         .putExtra("prepare-movie",movie).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);}
@@ -87,11 +88,29 @@ public class SplitChatActivity extends Activity {
                 Toast.makeText(this,"O Android ou este streaming não permitiu dividir a tela.",Toast.LENGTH_LONG).show();
                 returnToMovie();return;
             }
-            active=true;returning=false;confirmedSplit=true;s.openingChat=false;
-            input.setText(s.draft);input.setSelection(input.length());input.requestFocus();
-            getSystemService(InputMethodManager.class).showSoftInput(input,InputMethodManager.SHOW_IMPLICIT);
-            ui.post(refresh);idle.touch();
+            input.setText(s.draft);input.setSelection(input.length());
+            active=true;returning=false;confirmedSplit=true;keyboardReady=false;keyboardAttempts=0;s.openingChat=false;
+            ui.post(refresh);ui.post(requestKeyboard);
         },500);
+    }
+    final Runnable requestKeyboard=new Runnable(){public void run(){
+        if(!active || returning)return;
+        WindowInsets insets=getWindow().getDecorView().getRootWindowInsets();
+        if(insets!=null && insets.isVisible(WindowInsets.Type.ime())){
+            if(!keyboardReady){keyboardReady=true;idle.touch();}return;
+        }
+        if(getWindow().getDecorView().hasWindowFocus()){
+            input.requestFocus();
+            getSystemService(InputMethodManager.class).showSoftInput(input,InputMethodManager.SHOW_IMPLICIT);
+            WindowInsetsController controller=getWindow().getInsetsController();
+            if(controller!=null)controller.show(WindowInsets.Type.ime());
+        }
+        if(++keyboardAttempts<32)ui.postDelayed(this,150);
+        else Toast.makeText(SplitChatActivity.this,"Toque em Mensagem para abrir o teclado.",Toast.LENGTH_LONG).show();
+    }};
+    @Override public void onWindowFocusChanged(boolean focused){
+        super.onWindowFocusChanged(focused);
+        if(focused && active && !keyboardReady){ui.removeCallbacks(requestKeyboard);ui.post(requestKeyboard);}
     }
     TextView text(String value,int size){TextView t=new TextView(this);t.setText(value);t.setTextColor(0xffffffff);t.setTextSize(size);return t;}
     void send(){
@@ -107,7 +126,7 @@ public class SplitChatActivity extends Activity {
     }
     void returnToMovie(){
         if(returning)return;returning=true;
-        active=false;confirmedSplit=false;idle.cancel();ui.removeCallbacks(refresh);
+        active=false;confirmedSplit=false;idle.cancel();ui.removeCallbacks(refresh);ui.removeCallbacks(requestKeyboard);
         CompanionService s=CompanionService.instance;
         if(input!=null){if(s!=null)s.draft=input.getText().toString();getSystemService(InputMethodManager.class).hideSoftInputFromWindow(input.getWindowToken(),0);}
         // Dismiss the native split by expanding the upper movie before backgrounding chat.
@@ -125,7 +144,7 @@ public class SplitChatActivity extends Activity {
         if(split)ui.postDelayed(this::activateIfSplit,150);else if(active)returnToMovie();
     }
     @Override public void onConfigurationChanged(Configuration c){super.onConfigurationChanged(c);}
-    @Override protected void onPause(){idle.cancel();ui.removeCallbacks(refresh);active=false;confirmedSplit=false;super.onPause();}
+    @Override protected void onPause(){idle.cancel();ui.removeCallbacks(refresh);ui.removeCallbacks(requestKeyboard);active=false;confirmedSplit=false;super.onPause();}
     @Override protected void onSaveInstanceState(Bundle b){if(input!=null)b.putString("draft",input.getText().toString());super.onSaveInstanceState(b);}
     @Override protected void onDestroy(){
         idle.cancel();ui.removeCallbacksAndMessages(null);if(instance==this)instance=null;super.onDestroy();
