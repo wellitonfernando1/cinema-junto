@@ -1,4 +1,5 @@
 plugins { id 'com.android.application' }
+def companion = providers.gradleProperty('companion').getOrElse('false') == 'true'
 def trial = providers.gradleProperty('cinemaTrial').getOrElse('A')
 if (!(trial in ['A', 'B'])) throw new GradleException('cinemaTrial must be A or B')
 android {
@@ -6,7 +7,7 @@ android {
     namespace 'br.com.cinemajunto'
     compileSdk 35
     defaultConfig {
-        applicationId "br.com.cinemajunto.teste${trial.toLowerCase()}"
+        applicationId companion ? "br.com.cinemajunto.conversa" : "br.com.cinemajunto.teste${trial.toLowerCase()}"
         manifestPlaceholders = [appLabel: "Cinema ${trial} 0.17"]
         buildConfigField 'String', 'TRIAL', "\"${trial}\""
         buildConfigField 'int', 'CAPTURE_FPS', trial == 'A' ? '60' : '30'
@@ -15,8 +16,11 @@ android {
         minSdk 29
         targetSdk 35
         testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
-        versionCode 17
-        versionName "0.17-${trial}"
+        versionCode companion ? 1 : 17
+        versionName companion ? "0.1-conversa" : "0.17-${trial}"
+    }
+    if (companion) {
+        sourceSets.main.manifest.srcFile 'src/companion/AndroidManifest.xml'
     }
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17

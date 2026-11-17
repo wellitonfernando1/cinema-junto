@@ -1,0 +1,86 @@
+name: Cinema Conversa APK
+on:
+  push:
+    branches: [conversa-independente]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v4
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.13'
+      - uses: actions/cache@v4
+        with:
+          path: ~/.android/debug.keystore
+          key: cinema-conversa-test-signing-v1
+      - run: sdkmanager 'platforms;android-35' 'build-tools;35.0.0'
+      - run: gradle :app:assembleDebug :app:assembleDebugAndroidTest -Pcompanion=true --no-daemon
+      - name: Verify APK signature
+        run: $ANDROID_HOME/build-tools/35.0.0/apksigner verify --verbose app/build/outputs/apk/debug/app-debug.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: conversa-apks
+          path: |
+            app/build/outputs/apk/debug/app-debug.apk
+            app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+  test:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        api: [29, 35]
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: conversa-apks
+          path: apks
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: ${{ matrix.api }}
+          arch: x86_64
+          profile: pixel_2
+          disable-animations: true
+          script: |
+            adb install -g apks/debug/app-debug.apk
+            adb install -g apks/androidTest/debug/app-debug-androidTest.apk
+            adb shell am instrument -w -r -e class br.com.cinemajunto.CompanionTest br.com.cinemajunto.conversa.test/androidx.test.runner.AndroidJUnitRunner > test-result.txt
+            cat test-result.txt
+            grep -q 'OK (3 tests)' test-result.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: conversa-tests-${{ matrix.api }}
+          path: test-result.txt
+  publish:
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: conversa-apks
+          path: apks
+      - run: cp apks/debug/app-debug.apk Cinema-Conversa-0.1.apk
+      - name: Publish experimental APK
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "conversa-0.1-${{ github.run_number }}" Cinema-Conversa-0.1.apk --target "${{ github.sha }}" --prerelease --title "Cinema Conversa 0.1 · experimental" --notes "Chat independente e microfone por toque. Instalação e testes básicos em emuladores Android 10 e 15. Compatibilidade com streamings e conversa entre aparelhos reais ainda não validada. Histórico local das últimas 200 mensagens recebidas por sala. Servidor existente: até cinco aparelhos, sala de duas horas, voz de 30 segundos por turno."
